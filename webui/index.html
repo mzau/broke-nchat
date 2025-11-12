@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nChat 🦫</title>
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- marked.js for proper Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <button id="fullscreenToggle" class="fullscreen-toggle" onclick="toggleFullscreen()" title="Toggle fullscreen">⤢</button>
+            <div class="header-title">
+                <img src="assets/broke-beaver-logo.png" alt="BROKE Beaver" class="beaver-logo">
+                <h1>nChat</h1>
+            </div>
+            <div class="subtitle">The new way to chat with your LLMs</div>
+        </div>
+        
+        <div class="chat-area" id="chatArea">
+            <div class="message bot-message">
+                <strong>nChat:</strong> Hello! How can I help you today?
+            </div>
+        </div>
+        
+        <!-- Debug Controls -->
+        <div class="debug-controls" id="debugControls">
+            <div class="debug-section">
+                <h4>🔧 Debug Mode</h4>
+                <div class="mode-toggle">
+                    <button class="mode-button active" id="autoMode" onclick="setMode('auto')">Auto Mode</button>
+                    <button class="mode-button" id="manualMode" onclick="setMode('manual')">Manual Override</button>
+                </div>
+            </div>
+            
+            <div class="debug-section" id="manualControls" style="display: none;">
+                <h4>🎯 Complexity Override</h4>
+                <input type="range" class="complexity-slider" id="complexitySlider" 
+                       min="0" max="1" step="0.01" value="0.5" 
+                       oninput="updateComplexityValue(this.value)">
+                <div class="complexity-value" id="complexityValue">Balanced (0.50)</div>
+                
+                <h4>🤖 Manual Model Selection</h4>
+                <select class="model-select" id="modelSelect" onchange="onModelSelectChange()">
+                    <option value="auto">Auto (use complexity)</option>
+                    <!-- Models will be loaded dynamically from API -->
+                </select>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <!-- Model selector for non-BROKE servers -->
+            <div id="modelSelectorArea" style="display: none; margin-bottom: 10px;">
+                <label style="color: #4a5568; font-size: 0.9rem; margin-right: 10px;">Model:</label>
+                <select id="mainModelSelect" style="padding: 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; min-width: 200px;">
+                    <!-- Models will be loaded dynamically -->
+                </select>
+            </div>
+            <!-- File Attachments Area -->
+            <div id="attachedFilesArea" style="display: none; margin-bottom: 10px;">
+                <div id="attachedFilesList" class="attached-files-list"></div>
+            </div>
+            <!-- Hidden file input -->
+            <input type="file" id="fileInput" style="display: none;" multiple
+                   accept="text/*,.txt,.md,.py,.js,.json,.yaml,.yml,.html,.css,.xml,.log,.sh,.bash,.c,.cpp,.h,.java,.go,.rs,.php,.rb,.swift,.kt,.ts,.tsx,.jsx,.sql,.csv,.r"
+                   onchange="handleFileSelect(event)">
+            <div class="input-container">
+                <textarea id="promptInput" placeholder="Ask your question..." rows="3"
+                          onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }"></textarea>
+                <button id="attachButton" onclick="document.getElementById('fileInput').click()" title="Attach text files">📎</button>
+                <button id="sendButton" onclick="sendMessage()" title="Send message (Enter)">➤</button>
+            </div>
+        </div>
+        
+        <div class="status" id="status">
+            <div class="status-left">
+                <div class="connection-dot" id="connectionDot"></div>
+                <div class="status-spinner" id="statusSpinner" style="display: none;"></div>
+                <span id="statusText">Initializing...</span>
+            </div>
+            <div class="status-right">
+                <button id="clearButton" class="clear-button" onclick="clearChat()" title="Clear chat history">🗑️</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Attribution & Version -->
+    <div class="footer-attribution">
+        © 2025 <a href="https://github.com/mzau" target="_blank" rel="noopener">The BROKE Team</a> 🦫
+        <span class="footer-divider">•</span>
+        <span class="version-tag">nChat v<span id="versionNumber"></span></span>
+    </div>
+
+    <!-- Raw Debug Output Display (toggle with Ctrl+Shift+D / Cmd+Shift+D) -->
+    <div class="raw-debug" id="rawDebug">
+        <button class="raw-debug-close" onclick="document.getElementById('rawDebug').classList.remove('visible')" title="Close">&times;</button>
+        <strong>RAW MODEL OUTPUT (no formatting applied):</strong><br>
+        <span id="rawContent">Waiting for model response...</span>
+    </div>
+
+    <!-- Routing Info Modal -->
+    <div class="modal-overlay" id="routingModal">
+        <div class="modal-content">
+            <div class="modal-header">🧠 BROKE Routing Decision</div>
+            <div id="routingDetails"></div>
+            <button class="modal-close" onclick="closeRoutingModal()">Close</button>
+        </div>
+    </div>
+
+    <!-- Load modular JavaScript files -->
+    <script src="js/version.js"></script>
+    <script src="js/api.js?v=15"></script>
+    <script src="js/fileAttachment.js"></script>
+    <script src="js/chat/markdown.js?v=21"></script>
+    <script src="js/chat/ui.js"></script>
+    <script src="js/debug.js?v=12"></script>
+    <script src="js/chat.js?v=18"></script>
+    
+    <!-- Initialize the application -->
+    <script>
+        // Set version number from version.js
+        document.getElementById('versionNumber').textContent = NCHAT_VERSION;
+
+        // Fullscreen toggle functionality
+        function toggleFullscreen() {
+            const body = document.body;
+            const button = document.getElementById('fullscreenToggle');
+
+            body.classList.toggle('fullscreen-mode');
+
+            if (body.classList.contains('fullscreen-mode')) {
+                button.textContent = '⤡';
+                button.title = 'Exit fullscreen';
+            } else {
+                button.textContent = '⤢';
+                button.title = 'Toggle fullscreen';
+            }
+        }
+
+        // Debug panel hotkey (Ctrl+Shift+D or Cmd+Shift+D)
+        document.addEventListener('keydown', (e) => {
+            // Check if Shift+D is pressed with either Ctrl or Cmd (metaKey)
+            const isModifierPressed = e.ctrlKey || e.metaKey;
+            const isShiftD = e.shiftKey && (e.key === 'D' || e.key === 'd');
+
+            if (isModifierPressed && isShiftD) {
+                e.preventDefault();
+                console.log('Debug panel toggle triggered', {ctrlKey: e.ctrlKey, metaKey: e.metaKey, key: e.key});
+                toggleDebugView();
+            }
+        });
+
+        // Initialize the application when the page loads
+        window.addEventListener('load', async () => {
+            try {
+                console.log('Page loaded, starting initialization...');
+
+                // First detect server capabilities
+                console.log('Detecting server capabilities...');
+                await detectServerCapabilities();
+
+                // Then initialize components
+                console.log('Initializing chat...');
+                await initializeChat();
+
+                console.log('Initializing debug features...');
+                await initializeDebug();
+
+                console.log('Initialization complete!');
+            } catch (error) {
+                console.error('Initialization error:', error);
+                document.getElementById('statusText').textContent = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
