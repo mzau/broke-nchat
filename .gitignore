@@ -1,0 +1,12 @@
+CLAUDE.md
+.DS_Store
+AGENTS.md
+
+# Private development files (excluded from public branch)
+docs/
+tests/
+ADR-*.md
+prompt_*.txt
+project.txt
+multi-bulk-download/
+*.backup-*

@@ -1,0 +1,344 @@
+# nChat
+
+**Version 0.1.5-beta (WIP)**
+
+A simple, universal web chat client for OpenAI-compatible APIs.
+
+**nChat** = **n**ew **Chat** - A modern, lightweight interface for your LLMs.
+
+## Overview
+
+nChat is a standalone web interface that works with any OpenAI-compatible API server. It automatically detects server capabilities and adapts its feature set accordingly - no build tools, no dependencies, just open and use.
+
+## Features
+
+- **Universal Compatibility**: Works with any OpenAI-compatible API server
+- **Automatic Detection**: Detects server capabilities and adapts UI
+- **Zero Dependencies**: No build tools, no npm install - just HTML/CSS/JavaScript
+- **Real-time Streaming**: Token-by-token streaming with Server-Sent Events
+- **Markdown Support**: Code blocks, lists, links, tables, emphasis
+- **🖼️ Vision/Image Upload** *(v0.1.5-beta)*: Multi-image support with OpenAI Vision API (JPEG, PNG, GIF, WebP up to 20MB)
+- **🗑️ Message Deletion** *(v0.1.5-beta)*: Delete individual messages to clean up conversation context and reduce hallucination
+- **📎 File Upload**: Multi-file text attachments (25+ programming languages)
+- **💾 Smart Code Download**: Intelligent filename detection with download buttons on all code blocks
+- **📦 Bulk Download**: Auto-detects project structures → one-click save with full directory hierarchy (Chrome/Edge; fallback for other browsers)
+- **⏹ Stop Generation**: Abort streaming mid-response with graceful termination
+- **Session History**: Conversations with model metadata saved in browser sessionStorage (cleared on tab close)
+- **Modern UI**: Fullscreen mode, integrated prompt buttons, animated status indicators
+
+**Maturity Status:**
+- ✅ **Beta** for Standard OpenAI APIs (tested with mlx-knife)
+- ✅ **Beta** for Vision API (v0.1.5-beta) - *Server-side image numbering fix pending*
+- ⚠️ **Alpha** for BROKE Cluster (experimental features)
+
+### Enhanced Mode Features
+
+When connected to a server with extended debug endpoints, additional features activate:
+
+- Debug panel with Auto/Manual mode toggle
+- Complexity override slider (0.0 - 1.0)
+- Star rating system for feedback
+- Routing details and model selection info
+- Vote submission for training data
+
+### Standard Mode Features
+
+For standard OpenAI-compatible servers:
+
+- Model selection dropdown
+- Basic chat functionality
+- Health monitoring
+
+## Quick Start
+
+### Step 1: Launch nChat
+
+Simply open the HTML file - no build step required:
+
+#### Method 1: Direct Browser (Recommended)
+
+```bash
+# Simply open in browser - no server needed
+open webui/index.html
+# or double-click webui/index.html
+```
+
+#### Method 2: Python HTTP Server (Optional)
+
+```bash
+cd webui/
+python -m http.server 8080
+# Then navigate to: http://localhost:8080
+```
+
+---
+
+## Server Configuration
+
+**nChat works with any OpenAI-compatible API server.** Configure your server by opening browser DevTools → Console:
+
+**Open DevTools:**
+- Windows/Linux: `F12` or `Ctrl+Shift+I`
+- macOS: `Cmd+Option+I` or right-click → Inspect
+
+### Option 1: Browser localStorage (Recommended)
+
+**No code editing required** - just paste the commands below and reload:
+
+#### Ollama (Local)
+```javascript
+// Prefer the server root; `/v1` also works.
+localStorage.setItem('broke_api_base', 'http://localhost:11434');
+localStorage.setItem('broke_api_key', 'ollama');  // Ollama ignores API keys
+location.reload();
+```
+
+#### LM-Studio (Local)
+```javascript
+// Prefer the server root; `/v1` also works.
+localStorage.setItem('broke_api_base', 'http://localhost:1234');
+localStorage.setItem('broke_api_key', 'lm-studio');  // LM-Studio ignores API keys
+location.reload();
+```
+
+#### Local OpenAI-compatible server (generic)
+```javascript
+localStorage.setItem('broke_api_base', 'http://localhost:8000');
+localStorage.setItem('broke_api_key', 'your-api-key');  // May not be required by all servers
+location.reload();
+```
+
+#### Remote server
+```javascript
+localStorage.setItem('broke_api_base', 'http://your-server-ip:8000');
+localStorage.setItem('broke_api_key', 'your-api-key');
+location.reload();
+```
+
+**To reset to defaults:**
+```javascript
+localStorage.removeItem('broke_api_base');
+localStorage.removeItem('broke_api_key');
+location.reload();
+```
+
+### Option 2: Edit Code (Fallback)
+
+If localStorage doesn't work, edit `webui/js/api.js` (lines 24-25):
+```javascript
+const API_BASE = localStorage.getItem('broke_api_base') || 'http://localhost:8000';
+const API_KEY = localStorage.getItem('broke_api_key') || 'broke-dev-key-12345';
+```
+
+**⚠️ Security Note:** nChat is a pure client-side app (static HTML/JS). API keys are always visible in browser DevTools. **Never use production keys with sensitive billing limits.** This is intended for local/development use only.
+
+---
+
+## Keyboard Shortcuts
+
+### Enhanced Mode (BROKE Cluster)
+- **Ctrl+Shift+D** (Windows/Linux) / **Cmd+Shift+D** (Mac): Toggle debug panel
+
+### File Operations
+- **Shift+Click** on Bulk Download button: Download to a new directory (Mac: ⇧ + Klick)
+  - Works for both initial download and repeated downloads (even after "View project tree" is shown)
+  - Prompts for optional subdirectory ("Download to:" field in modal)
+  - Resets entire session: clears all path edits (Alt+Click) and bulk button state
+  - Use case: Download same LLM output to multiple test directories without tab reload
+  - Tooltip shows: *"Shift+Click to download to a new directory (works for repeated downloads)"*
+- **Alt+Click** on single file save (code block): Edit the relative path under the current project root before saving. (Mac: ⌥ + Klick)
+  - Preserves current project root, only changes file path
+  - Example: `backend/utils.js` → edit to `lib/helpers.js` → saves to same project under different path
+  - Use case: Reorganize individual files within the same project session
+- **Shift+Click** on single file save (code block): Start new session with new project root (Mac: ⇧ + Klick)
+  - Prompts for new project root directory
+  - Prompts for optional subdirectory (consistent with bulk download UX)
+  - Pre-fills subdirectory with original path (e.g., `src/main.rs` → suggests "src")
+  - Resets entire session: clears all path edits (Alt+Click) and bulk button state
+  - Use case: Save file to completely different project (fresh start)
+
+### Browser Console Commands
+
+For advanced users, these commands are available in the browser console:
+
+```javascript
+window.refreshServerCapabilities()  // Re-detect server type
+toggleDebugView()                   // Toggle debug panel (BROKE Cluster only)
+clearChat()                         // Clear chat history
+setMode('auto')                     // Enable auto routing (BROKE Cluster only)
+setMode('manual')                   // Enable manual override (BROKE Cluster only)
+```
+
+## Configuration
+
+API configuration is located in `webui/js/api.js` (lines 4-5):
+
+```javascript
+const API_BASE = 'http://localhost:8000';  // Your backend URL
+const API_KEY = 'broke-dev-key-12345';     // Your API key
+```
+
+## Project Structure
+
+```
+broke-nchat/
+├── README.md                # This file
+├── CLAUDE.md                # Developer documentation
+├── CHANGELOG.md             # Version history
+├── CONTRIBUTING.md          # Contribution guidelines
+├── docs/
+│   ├── grammar/
+│   │   └── BNF-GRAMMAR.md   # Formal grammar specification (v0.1.4-beta)
+│   ├── parser-architecture.md  # Parser implementation docs
+│   └── ADR/                 # Architecture Decision Records
+├── tests/
+│   ├── parser.test.js       # Filename parser tests
+│   ├── tree-parser.test.js  # Tree parser unit tests
+│   ├── fixtures/            # Test fixtures (17 real LLM outputs)
+│   └── expected/            # Expected parser outputs
+└── webui/
+    ├── index.html           # Main HTML file
+    ├── COMPATIBILITY_NOTES.md  # Server endpoint documentation
+    ├── assets/
+    │   └── broke-beaver-logo.png
+    ├── css/
+    │   └── styles.css
+    └── js/
+        ├── version.js       # Version constant
+        ├── api.js           # API communication
+        ├── chat.js          # Chat logic & streaming control
+        ├── fileAttachment.js  # File upload handling
+        ├── debug.js         # Debug features (BROKE Cluster)
+        └── chat/
+            ├── ui.js        # UI rendering & interactions
+            ├── project-structure.js  # Bulk download (⚠️ 1347 LOC - refactor needed)
+            ├── markdown.js  # Parser DOM integration
+            └── markdown/    # Modular parser (v0.1.2+)
+                ├── constants.js   # Token patterns & file extensions
+                ├── lexer.js       # Path extraction
+                ├── parser.js      # Candidate resolution
+                ├── confidence.js  # Confidence scoring
+                └── fallback.js    # Fallback patterns
+```
+
+**Key Modules:**
+
+**Parser (modular architecture, v0.1.2+):**
+- Grammar specification: `docs/grammar/BNF-GRAMMAR.md` (v0.1.4-beta)
+- Implementation docs: `docs/parser-architecture.md`
+- Code modules: `webui/js/chat/markdown/` (5 modules + DOM integration)
+
+**Core Chat:**
+- `api.js` - HTTP communication, server capability detection
+- `chat.js` - Main chat logic, state management
+- `ui.js` - UI rendering & interactions
+- `fileAttachment.js` - File upload handling
+
+**Test Infrastructure:**
+- **Parser tests**: 39 tests (17 filename parser + 22 tree parser)
+- **Bulk download tests**: 17 tests (synthetic project structure generation)
+- **Fixtures**: 17 real LLM outputs
+- **Snapshots**: Baseline for regression testing (`tests/snapshots/`)
+- See `tests/README.md` for details
+
+**Known Issue:**
+- `project-structure.js` (1347 LOC) needs refactoring into smaller modules (tree detection, file system API, download orchestration, UI)
+
+## Technical Details
+
+- **No Build Dependencies**: Zero-build setup with pure HTML/CSS/JavaScript
+- **Modular Architecture**: Clean separation between API, chat, UI, file handling, and debug logic
+- **Lexer/Parser**: Robust filename detection using compiler-style architecture
+- **Session Caching**: Server capabilities cached for 5 minutes
+- **Graceful Degradation**: Works even if certain endpoints are missing
+- **localStorage**: Persists chat history and model selection
+- **File System Access API**: Native save dialogs (Chrome/Edge) with fallback (Firefox/Safari)
+
+## Browser Compatibility
+
+Works with all modern browsers supporting:
+
+- ES6 JavaScript
+- Fetch API
+- localStorage
+- sessionStorage
+- Server-Sent Events (SSE)
+
+## Development
+
+No build tools required! Simply edit files and refresh browser.
+
+```bash
+# Edit a file
+vim webui/js/chat.js
+
+# Refresh browser - done!
+```
+
+See [Keyboard Shortcuts](#keyboard-shortcuts) section for available hotkeys and console commands.
+
+## API Requirements
+
+See `webui/COMPATIBILITY_NOTES.md` for detailed endpoint documentation.
+
+**Minimum Required Endpoints:**
+- `GET /health` - Health check
+- `GET /v1/models` - List available models
+- `POST /v1/chat/completions` - Chat endpoint with streaming
+
+**Optional Enhanced Endpoints:**
+- `GET /debug/models` - Extended model information
+- `POST /debug/complexity` - Prompt complexity analysis
+- `POST /debug/vote` - Feedback collection
+
+## License
+
+This project is licensed under the **Apache License 2.0** with an **Additional Attribution Requirement**.
+
+See the [LICENSE](LICENSE) file for full details.
+
+### Key Points
+
+- ✅ **Free to use, modify, and distribute** (Apache 2.0)
+- ✅ **Commercial use permitted**
+- ⚠️ **Attribution required**: Forks and derivatives MUST display the BROKE logo and credit in the UI
+- 🔗 **Link required**: "Built with nChat by BROKE Team" with link to this repository
+
+This ensures users can always identify the original source while allowing the community to build upon this work.
+
+## Credits
+
+Developed by the **BROKE Team** (github.com/mzau)
+
+**BROKE**: *"BROKE Runs On Keen Efficiency"*
+
+---
+
+## Release Roadmap
+
+### v0.1.x-beta (Internal Development - Incremental Features)
+
+- ✅ **v0.1.0-beta** (Nov 2025): Initial release
+- ✅ **v0.1.1-beta**: Parser fixes, test infrastructure
+- ✅ **v0.1.2-beta**: Parser refactoring (1070→390 LOC), parenthetical paths, bulk download
+- ✅ **v0.1.3-beta** (Nov 2025): BNF conformance, asset extensions, conflict resolution UI
+- ✅ **v0.1.4-beta** (Dez 2025): **Grammar Extensions & UX Enhancements**
+  - Emphasis paths (`**src/app.js**`, `*config.json*`, `_path_`, `__path__`)
+  - Shift+Click subdirectory prompt (consistent UX)
+  - project-structure.js refactoring (1347 LOC → 4 modules)
+  - P1 bug fixes: Synthetic tree root stripping, folder annotations
+  - 40/40 tests passing (18 parser + 22 tree)
+- 🎯 **v0.1.5-beta** (Ende Dez 2025 - Q1 2026): **Vision Support - FIRST PUBLIC BETA** 🚀
+  - **Timeline flexible** - follows mlx-knife Vision API availability
+  - **Public release candidate** (together with mlx-knife Vision API)
+  - Image upload UI (screenshots, diagrams, photos)
+  - Multimodal chat completions (screenshot → code extraction)
+  - Parser edge cases: Image responses, mixed text/image outputs
+  - **Community testing phase** - Public feedback before v0.2.0
+  - Repository: Public on GitHub with contribution guidelines
+
+---
+
+**For future roadmap and feature planning, see internal documentation.**
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/ADR/](docs/ADR/) for architectural decisions.
