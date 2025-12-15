@@ -10,3 +10,4 @@ prompt_*.txt
 project.txt
 multi-bulk-download/
 *.backup-*
+package.json

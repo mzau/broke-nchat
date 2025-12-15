@@ -1,14 +1,22 @@
-# nChat
+<div align="center">
 
-**Version 0.1.5-beta (WIP)**
+<h1>
+  <img src="webui/assets/broke-beaver-logo.png" alt="BROKE Beaver" height="33" style="vertical-align: baseline; margin-bottom: -2px;">nChat
+</h1>
+
+<strong>Version 0.1.5-beta</strong>
+
+<em>The new way to chat with your LLMs</em>
 
 A simple, universal web chat client for OpenAI-compatible APIs.
 
-**nChat** = **n**ew **Chat** - A modern, lightweight interface for your LLMs.
+</div>
 
 ## Overview
 
-nChat is a standalone web interface that works with any OpenAI-compatible API server. It automatically detects server capabilities and adapts its feature set accordingly - no build tools, no dependencies, just open and use.
+**nChat** is a standalone web interface that works with any OpenAI-compatible API server. It automatically detects server capabilities and adapts its feature set accordingly - no build tools, no dependencies, just open and use.
+
+**Reference Implementation**: nChat serves as the reference client implementation for the [mlx-knife](https://github.com/mzau/mlx-knife) project and BROKE Cluster, demonstrating best practices for OpenAI-compatible API integration, Vision API support, and advanced chat features.
 
 ## Features
 
@@ -183,19 +191,8 @@ const API_KEY = 'broke-dev-key-12345';     // Your API key
 ```
 broke-nchat/
 ├── README.md                # This file
-├── CLAUDE.md                # Developer documentation
 ├── CHANGELOG.md             # Version history
-├── CONTRIBUTING.md          # Contribution guidelines
-├── docs/
-│   ├── grammar/
-│   │   └── BNF-GRAMMAR.md   # Formal grammar specification (v0.1.4-beta)
-│   ├── parser-architecture.md  # Parser implementation docs
-│   └── ADR/                 # Architecture Decision Records
-├── tests/
-│   ├── parser.test.js       # Filename parser tests
-│   ├── tree-parser.test.js  # Tree parser unit tests
-│   ├── fixtures/            # Test fixtures (17 real LLM outputs)
-│   └── expected/            # Expected parser outputs
+├── LICENSE                  # Apache 2.0 License
 └── webui/
     ├── index.html           # Main HTML file
     ├── COMPATIBILITY_NOTES.md  # Server endpoint documentation
@@ -207,13 +204,17 @@ broke-nchat/
         ├── version.js       # Version constant
         ├── api.js           # API communication
         ├── chat.js          # Chat logic & streaming control
-        ├── fileAttachment.js  # File upload handling
+        ├── fileAttachment.js  # File & image upload handling
         ├── debug.js         # Debug features (BROKE Cluster)
         └── chat/
             ├── ui.js        # UI rendering & interactions
-            ├── project-structure.js  # Bulk download (⚠️ 1347 LOC - refactor needed)
+            ├── bulk-download.js  # Bulk download orchestration
+            ├── bulk-ui.js   # Bulk download UI
+            ├── file-system.js  # File System Access API wrapper
+            ├── project-structure.js  # Tree structure generation
+            ├── tree-detection.js  # Tree syntax detection
             ├── markdown.js  # Parser DOM integration
-            └── markdown/    # Modular parser (v0.1.2+)
+            └── markdown/    # Modular parser
                 ├── constants.js   # Token patterns & file extensions
                 ├── lexer.js       # Path extraction
                 ├── parser.js      # Candidate resolution
@@ -223,26 +224,23 @@ broke-nchat/
 
 **Key Modules:**
 
-**Parser (modular architecture, v0.1.2+):**
-- Grammar specification: `docs/grammar/BNF-GRAMMAR.md` (v0.1.4-beta)
-- Implementation docs: `docs/parser-architecture.md`
+**Parser (modular architecture):**
 - Code modules: `webui/js/chat/markdown/` (5 modules + DOM integration)
+- Lexer-based path extraction with confidence scoring
+- Fallback patterns for edge cases
 
 **Core Chat:**
 - `api.js` - HTTP communication, server capability detection
-- `chat.js` - Main chat logic, state management
+- `chat.js` - Main chat logic, state management, streaming
 - `ui.js` - UI rendering & interactions
-- `fileAttachment.js` - File upload handling
+- `fileAttachment.js` - File & image upload handling (Vision API support)
 
-**Test Infrastructure:**
-- **Parser tests**: 39 tests (17 filename parser + 22 tree parser)
-- **Bulk download tests**: 17 tests (synthetic project structure generation)
-- **Fixtures**: 17 real LLM outputs
-- **Snapshots**: Baseline for regression testing (`tests/snapshots/`)
-- See `tests/README.md` for details
-
-**Known Issue:**
-- `project-structure.js` (1347 LOC) needs refactoring into smaller modules (tree detection, file system API, download orchestration, UI)
+**Bulk Download:**
+- `bulk-download.js` - Download orchestration
+- `bulk-ui.js` - UI for bulk operations
+- `file-system.js` - File System Access API wrapper
+- `project-structure.js` - Tree structure generation
+- `tree-detection.js` - Tree syntax detection
 
 ## Technical Details
 
@@ -306,39 +304,18 @@ See the [LICENSE](LICENSE) file for full details.
 
 This ensures users can always identify the original source while allowing the community to build upon this work.
 
-## Credits
-
-Developed by the **BROKE Team** (github.com/mzau)
-
-**BROKE**: *"BROKE Runs On Keen Efficiency"*
-
 ---
 
-## Release Roadmap
+<div align="center">
 
-### v0.1.x-beta (Internal Development - Incremental Features)
+## 🦫
 
-- ✅ **v0.1.0-beta** (Nov 2025): Initial release
-- ✅ **v0.1.1-beta**: Parser fixes, test infrastructure
-- ✅ **v0.1.2-beta**: Parser refactoring (1070→390 LOC), parenthetical paths, bulk download
-- ✅ **v0.1.3-beta** (Nov 2025): BNF conformance, asset extensions, conflict resolution UI
-- ✅ **v0.1.4-beta** (Dez 2025): **Grammar Extensions & UX Enhancements**
-  - Emphasis paths (`**src/app.js**`, `*config.json*`, `_path_`, `__path__`)
-  - Shift+Click subdirectory prompt (consistent UX)
-  - project-structure.js refactoring (1347 LOC → 4 modules)
-  - P1 bug fixes: Synthetic tree root stripping, folder annotations
-  - 40/40 tests passing (18 parser + 22 tree)
-- 🎯 **v0.1.5-beta** (Ende Dez 2025 - Q1 2026): **Vision Support - FIRST PUBLIC BETA** 🚀
-  - **Timeline flexible** - follows mlx-knife Vision API availability
-  - **Public release candidate** (together with mlx-knife Vision API)
-  - Image upload UI (screenshots, diagrams, photos)
-  - Multimodal chat completions (screenshot → code extraction)
-  - Parser edge cases: Image responses, mixed text/image outputs
-  - **Community testing phase** - Public feedback before v0.2.0
-  - Repository: Public on GitHub with contribution guidelines
+**BROKE** – *BROKE Runs On Keen Efficiency*
 
----
+Built with ❤️ by the [BROKE Team](https://github.com/mzau)
 
-**For future roadmap and feature planning, see internal documentation.**
+[mlx-knife](https://github.com/mzau/mlx-knife) • [nChat](https://github.com/mzau/broke-nchat) • [BROKE Cluster](https://github.com/mzau)
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and [docs/ADR/](docs/ADR/) for architectural decisions.
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
+
+</div>
