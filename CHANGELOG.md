@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.6-beta] - 2026-02-03
+
+Audio upload support with SERVER-HANDBOOK.md v2.0.4-beta.9 feature alignment.
+
+### Added
+
+- **Audio File Upload**:
+  - Upload audio files (mp3, wav) up to 50MB for transcription, 5MB for chat
+  - Single-audio guard (one audio per message)
+  - Preview player in prompt area
+  - Compact metadata chips in chat history
+  - Robust duration detection (metadata + WebAudio fallback)
+
+- **`/v1/audio/transcriptions` Endpoint Support**:
+  - Hybrid audio endpoint strategy based on model detection
+  - Known STT models (whisper, voxtral) → direct transcriptions endpoint
+  - Known multimodal chat models (gemma-3n) → chat/completions with input_audio
+  - Unknown models → try transcriptions first, fallback to chat on error
+  - Multipart/form-data upload for Whisper-compatible transcription
+  - Authentication header support for reverse proxy deployments
+
+- **ADR-004 Error Envelope Support**:
+  - Detects structured error format: `{status: "error", error: {type, message, retryable}}`
+  - User-friendly error type labels (validation_error, model_not_found, etc.)
+  - Retryable indicator shown in error messages
+
+- **HTTP 507 Handling**:
+  - Specific message for insufficient memory errors
+  - Suggests trying smaller quantized models (e.g., 4-bit instead of 8-bit)
+
+- **Audio+Vision Warning**:
+  - Toast notification when audio is combined with images
+  - Informs user that audio will be ignored (server limitation)
+
+- **X-Request-ID Capture**:
+  - Captures server request ID from response headers
+  - Included in error messages for debugging
+
+- **Context Length Caching**:
+  - Caches `context_length` from `/v1/models` response
+  - Available via `getModelContextLength(modelId)` for future UI features
+
+### Fixed
+
+- **Abort-Handling Crashes**:
+  - Fixed: Stream reader null-pointer error when stopping long inference
+  - Fixed: Copy button missing on aborted messages
+  - Now: Graceful abort with proper UI state (copy/delete buttons visible)
+  - Prevents "Cannot read properties of null (reading 'read')" crash
+
+### Known Issues (Server Limitations)
+
+- Long audio truncated to early segment (regardless of `max_tokens`)
+- Audio+Vision combined: audio ignored (mlx-vlm behavior)
+- Multi-audio not supported (mlx-vlm limitation)
+- EuroLLM-22B tokenizer/encoding issues (model-specific, not WebUI bug)
+
+---
+
 ## [0.1.5-beta] - 2025-12-15
 
 First public beta release with Vision API support, enhanced bulk download, and universal OpenAI API compatibility.

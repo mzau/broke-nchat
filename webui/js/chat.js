@@ -39,6 +39,15 @@ function sanitizeHistoryForStorage(history) {
                             image_url: { url: '[IMAGE_DATA_REMOVED]' }
                         };
                     }
+                    if (part.type === 'input_audio' && typeof part.input_audio?.data === 'string' && part.input_audio.data.length > 0) {
+                        return {
+                            type: 'input_audio',
+                            input_audio: {
+                                ...part.input_audio,
+                                data: '[AUDIO_DATA_REMOVED]'
+                            }
+                        };
+                    }
                     return part;
                 })
             };
@@ -66,20 +75,42 @@ function saveConversationHistory() {
  * @returns {Array} - Filtered history safe for API requests
  */
 function sanitizeHistoryForAPI(history) {
-    return history.filter(msg => {
-        if (Array.isArray(msg.content)) {
-            // Skip messages with [IMAGE_DATA_REMOVED] placeholders
-            const hasPlaceholder = msg.content.some(part =>
-                part.type === 'image_url' &&
-                typeof part.image_url?.url === 'string' &&
-                part.image_url.url === '[IMAGE_DATA_REMOVED]'
-            );
-            if (hasPlaceholder) {
-                console.log('[API] Skipping message with image placeholder (from reloaded session)');
-                return false;
-            }
+    const lastIndex = history.length - 1;
+
+    return history.map((msg, index) => {
+        if (!Array.isArray(msg.content)) {
+            return msg;
         }
-        return true;
+
+        const isLastUserMessage = index === lastIndex && msg.role === 'user';
+
+        const filteredParts = msg.content.filter(part => {
+            if (part.type === 'image_url') {
+                const url = part.image_url?.url;
+                if (!url || url === '[IMAGE_DATA_REMOVED]') {
+                    return false;
+                }
+            }
+            if (part.type === 'input_audio') {
+                // Only keep audio in the LAST user message (current request)
+                // Filter audio from historical messages to prevent sending
+                // large base64 data to text models after model switch
+                if (!isLastUserMessage) {
+                    return false;
+                }
+                // Also filter if it's a placeholder
+                const data = part.input_audio?.data;
+                if (!data || data === '[AUDIO_DATA_REMOVED]') {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        return {
+            ...msg,
+            content: filteredParts.length > 0 ? filteredParts : ''
+        };
     });
 }
 
@@ -347,8 +378,11 @@ window.stopInference = function() {
         // Finalize UI
         const responseTime = Date.now() - (sessionStartTime || Date.now());
         const model = currentBotMessage.getAttribute('data-model') || 'unknown';
-        finalizeBotMessage(currentBotMessage, model, responseTime, null, null, 'stopped');
+        finalizeBotMessage(currentBotMessage, model, responseTime, null, null);
         enableBulkDownloadButtons(currentBotMessage);
+
+        // Reset currentBotMessage to prevent further updates from overwriting finalized state
+        currentBotMessage = null;
     }
 
     // Reset UI
@@ -387,19 +421,30 @@ window.sendMessage = async function() {
 
     // Get attached images for API (multimodal format)
     const images = getAttachedImagesForAPI();
+    // Get attached audio for API (input_audio format)
+    const audios = getAttachedAudioForAPI();
 
     // Check if we have either prompt text or files
     if (!prompt && getAttachedFilesCount() === 0) return;
 
     // Build message content (multimodal if images present)
     let messageContent;
-    if (images.length > 0) {
+    if (images.length > 0 || audios.length > 0) {
         // Multimodal format for Vision API
         messageContent = [
             { type: 'text', text: prompt }
         ];
         messageContent.push(...images);
-        console.log(`[VISION] Sending multimodal message with ${images.length} image(s)`);
+        messageContent.push(...audios);
+        if (images.length > 0 && audios.length > 0) {
+            console.log(`[MULTIMODAL] Sending message with ${images.length} image(s) and ${audios.length} audio file(s)`);
+            // Warn user that audio is ignored when combined with images (mlx-vlm limitation)
+            showWarning('Audio is ignored when combined with images (server limitation).');
+        } else if (images.length > 0) {
+            console.log(`[VISION] Sending multimodal message with ${images.length} image(s)`);
+        } else {
+            console.log(`[AUDIO] Sending multimodal message with ${audios.length} audio file(s)`);
+        }
     } else {
         // Text-only format (unchanged)
         messageContent = prompt;
@@ -477,6 +522,86 @@ window.sendMessage = async function() {
     }
     
     try {
+        // Check if this is a pure audio request that should use transcription endpoint
+        const audioFile = getAttachedAudioFile();
+        const selectedModel = manualModel || mainModelSelect?.value || 'auto';
+
+        // Audio size limits
+        const MAX_AUDIO_SIZE_CHAT = 5 * 1024 * 1024;  // 5MB for chat/completions
+
+        if (audioFile && audios.length > 0 && images.length === 0) {
+            const strategy = getAudioEndpointStrategy(selectedModel);
+            console.log(`[AUDIO] Strategy for model ${selectedModel}: ${strategy}`);
+
+            // Check if audio is too large for chat endpoint
+            if (strategy === 'chat' && audioFile.size > MAX_AUDIO_SIZE_CHAT) {
+                const sizeMB = (audioFile.size / (1024 * 1024)).toFixed(1);
+                showWarning(`Audio file too large for chat model (${sizeMB}MB > 5MB limit). Use a transcription model like Whisper for larger files.`);
+                updateConnectionStatus(false, 'Audio too large for chat model');
+                showSendButton();
+                sendButton.disabled = false;
+                input.disabled = false;
+                hideTypingIndicator();
+                return;
+            }
+
+            if (strategy === 'transcriptions' || strategy === 'try_transcriptions_first') {
+                updateConnectionStatus(true, 'Transcribing audio...');
+
+                try {
+                    const result = await transcribeAudio(audioFile, selectedModel);
+
+                    if (result && result.text) {
+                        // Transcription successful - display result
+                        const transcriptionText = result.text;
+                        console.log('[AUDIO] Transcription successful:', transcriptionText.substring(0, 100) + '...');
+
+                        // Add transcription as assistant message
+                        conversationHistory.push({ role: 'assistant', content: transcriptionText, model: selectedModel });
+
+                        // Sanitize in-memory history to free memory (replace audio base64 with placeholder)
+                        conversationHistory = sanitizeHistoryForStorage(conversationHistory);
+                        saveConversationHistory();
+
+                        // Display result
+                        const responseTime = Date.now() - sessionStartTime;
+                        addMessage(transcriptionText, MESSAGE_TYPE.BOT, selectedModel);
+
+                        updateConnectionStatus(true, 'Transcription complete');
+                        showSendButton();
+                        sendButton.disabled = false;
+                        input.disabled = false;
+                        clearAttachedFiles();
+                        return;
+                    }
+
+                    // result is null - not a transcription model, fallback to chat
+                    if (strategy === 'try_transcriptions_first') {
+                        console.log('[AUDIO] Falling back to chat/completions with input_audio');
+                        // Check if audio is too large for chat fallback
+                        if (audioFile.size > MAX_AUDIO_SIZE_CHAT) {
+                            const sizeMB = (audioFile.size / (1024 * 1024)).toFixed(1);
+                            throw new Error(`Audio file too large for chat (${sizeMB}MB > 5MB). Model does not support transcription.`);
+                        }
+                        updateConnectionStatus(true, 'Using chat mode for audio...');
+                    }
+                } catch (transcriptionError) {
+                    if (strategy === 'transcriptions') {
+                        // STT model should work, throw the error
+                        throw transcriptionError;
+                    }
+                    // For 'try_transcriptions_first', fallback to chat
+                    console.log('[AUDIO] Transcription failed, falling back to chat:', transcriptionError.message);
+                    // Check if audio is too large for chat fallback
+                    if (audioFile.size > MAX_AUDIO_SIZE_CHAT) {
+                        const sizeMB = (audioFile.size / (1024 * 1024)).toFixed(1);
+                        throw new Error(`Audio file too large for chat (${sizeMB}MB > 5MB). Transcription failed: ${transcriptionError.message}`);
+                    }
+                    updateConnectionStatus(true, 'Using chat mode for audio...');
+                }
+            }
+        }
+
         // Create streaming response with manual overrides
         // Filter out messages with image placeholders from reloaded sessions
         const apiHistory = conversationHistory.length > 0
@@ -493,7 +618,7 @@ window.sendMessage = async function() {
             ],
             // max_tokens omitted - let server use dynamic calculation (context_length/2)
             // Previous: 1000 (too restrictive for code generation tasks)
-            temperature: 0.7,
+            temperature: audios.length > 0 ? 0.0 : 0.7,
             stream: true
         };
         
@@ -506,6 +631,12 @@ window.sendMessage = async function() {
         }
         
         const response = await createChatCompletion(requestBody);
+
+        // Capture X-Request-ID for debugging (MLX Knife extension)
+        const requestId = response.headers.get('X-Request-ID');
+        if (requestId) {
+            console.log(`[API] X-Request-ID: ${requestId}`);
+        }
 
         // Handle streaming response
         currentReader = response.body.getReader();
@@ -521,8 +652,14 @@ window.sendMessage = async function() {
         
         let tokenCount = 0;
         let complexity = finalComplexity;
-        
+
         while (true) {
+            // Check if reader was cancelled (abort handling)
+            if (!currentReader) {
+                console.log('[ABORT] Reader cancelled, exiting stream loop');
+                break;
+            }
+
             const { done, value } = await currentReader.read();
             if (done) break;
             
@@ -541,6 +678,8 @@ window.sendMessage = async function() {
                         const assistantContent = botMessageDiv.getAttribute('data-content') || '';
                         if (assistantContent.trim()) {
                             conversationHistory.push({ role: 'assistant', content: assistantContent, model: currentModel });
+                            // Sanitize in-memory history to free memory (replace media base64 with placeholders)
+                            conversationHistory = sanitizeHistoryForStorage(conversationHistory);
                             saveConversationHistory();
                         }
                         
@@ -565,18 +704,24 @@ window.sendMessage = async function() {
                         }
 
                         if (delta?.content) {
+                            // Abort check: stop processing if message was aborted
+                            if (!currentBotMessage) {
+                                console.log('[ABORT] Message aborted, stopping stream processing');
+                                break;
+                            }
+
                             tokenCount += delta.content.split(/\s+/).length;
-                            
+
                             // Update raw debug view with unprocessed content
                             updateRawDebugView(delta.content);
-                            
+
                             // DEBUG: Show raw model output in console
                             console.log('RAW MODEL TOKEN:', JSON.stringify(delta.content));
-                            
+
                             appendToBotMessage(botMessageDiv, delta.content, currentModel, complexity);
                             chatArea.scrollTop = chatArea.scrollHeight;
                             updateConnectionStatus(true, `Streaming from ${currentModel}... (${tokenCount} tokens)`);
-                            
+
                             // Small delay to allow browser rendering - makes streaming visible
                             await new Promise(resolve => setTimeout(resolve, 20));
                         }
@@ -589,9 +734,11 @@ window.sendMessage = async function() {
                             const assistantContent = botMessageDiv.getAttribute('data-content') || '';
                             if (assistantContent.trim()) {
                                 conversationHistory.push({ role: 'assistant', content: assistantContent, model: currentModel });
+                                // Sanitize in-memory history to free memory (replace media base64 with placeholders)
+                                conversationHistory = sanitizeHistoryForStorage(conversationHistory);
                                 saveConversationHistory();
                             }
-                            
+
                             finalizeBotMessage(botMessageDiv, currentModel, responseTime, complexity, routingData, finalRequestId);
                             enableBulkDownloadButtons(botMessageDiv);
                             updateConnectionStatus(true, `Response complete (${tokenCount} tokens)`);
@@ -994,4 +1141,3 @@ window.addEventListener('load', () => {
     // Delay restoration to ensure DOM is ready
     setTimeout(restoreChatHistory, 100);
 });
-

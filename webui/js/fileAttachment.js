@@ -7,9 +7,12 @@ let attachedFiles = [];
 // File size limits
 const MAX_TEXT_FILE_SIZE = 50 * 1024;      // 50KB for text files
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;   // 20MB for images (MLX-Server supports up to 50MB)
+const MAX_AUDIO_SIZE_CHAT = 5 * 1024 * 1024;    // 5MB for chat audio (input_audio in chat/completions)
+const MAX_AUDIO_SIZE_TRANSCRIPTION = 50 * 1024 * 1024;  // 50MB for transcription endpoint (Whisper/Voxtral)
 
 // Image file extensions
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+const AUDIO_EXTENSIONS = ['wav', 'mp3'];
 
 // Thumbnail settings
 const THUMBNAIL_MAX_SIZE = 100; // Max dimension in pixels
@@ -57,6 +60,14 @@ function isImageFile(filename) {
 }
 
 /**
+ * Checks if a file is an audio file based on extension
+ */
+function isAudioFile(filename) {
+    const extension = filename.split('.').pop().toLowerCase();
+    return AUDIO_EXTENSIONS.includes(extension);
+}
+
+/**
  * Gets MIME type from file extension
  */
 function getMimeType(filename) {
@@ -69,6 +80,54 @@ function getMimeType(filename) {
         'webp': 'image/webp'
     };
     return mimeTypes[extension] || 'application/octet-stream';
+}
+
+/**
+ * Gets audio format from filename (OpenAI input_audio expects "wav" or "mp3")
+ */
+function getAudioFormat(filename) {
+    const extension = filename.split('.').pop().toLowerCase();
+    if (extension === 'mp3') return 'mp3';
+    return 'wav';
+}
+
+/**
+ * Determines the audio endpoint strategy based on model ID
+ * @param {string} modelId - The model identifier
+ * @returns {'transcriptions' | 'chat' | 'try_transcriptions_first'}
+ */
+function getAudioEndpointStrategy(modelId) {
+    if (!modelId) return 'chat';
+    const id = modelId.toLowerCase();
+
+    // Known STT models → use /v1/audio/transcriptions directly
+    if (id.includes('whisper') || id.includes('voxtral')) {
+        return 'transcriptions';
+    }
+
+    // Known multimodal chat models → use chat/completions with input_audio
+    if (id.includes('gemma-3n') || id.includes('gemma3n')) {
+        return 'chat';
+    }
+
+    // Unknown → try transcriptions first, fallback to chat on error
+    return 'try_transcriptions_first';
+}
+
+// Export for use in chat.js
+window.getAudioEndpointStrategy = getAudioEndpointStrategy;
+
+/**
+ * Formats audio duration in mm:ss
+ */
+function formatDuration(seconds) {
+    if (seconds === null || seconds === undefined || !isFinite(seconds)) {
+        return '—';
+    }
+    const total = Math.round(seconds);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 /**
@@ -123,6 +182,92 @@ function readImageAsBase64(file) {
         };
 
         reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Reads audio file as Base64 data URL
+ */
+function readAudioAsBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            resolve(e.target.result); // data:audio/...;base64,...
+        };
+
+        reader.onerror = () => {
+            reject(new Error('Failed to read audio'));
+        };
+
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Loads audio metadata (duration) from a blob URL
+ */
+async function decodeAudioDurationFromFile(file) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+        return null;
+    }
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const ctx = new AudioCtx();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        if (ctx.close) {
+            ctx.close();
+        }
+        return audioBuffer?.duration || null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function loadAudioDuration(objectUrl, file) {
+    return new Promise((resolve) => {
+        const audio = new Audio();
+        let timeoutId = null;
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(value);
+        };
+        const cleanup = () => {
+            audio.removeEventListener('loadedmetadata', onLoaded);
+            audio.removeEventListener('loadeddata', onLoaded);
+            audio.removeEventListener('canplaythrough', onLoaded);
+            audio.removeEventListener('error', onError);
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+        };
+        const onLoaded = () => {
+            if (isFinite(audio.duration) && audio.duration > 0) {
+                finish(audio.duration);
+            }
+        };
+        const onError = () => {
+            finish(null);
+        };
+        audio.preload = 'metadata';
+        audio.src = objectUrl;
+        audio.addEventListener('loadedmetadata', onLoaded);
+        audio.addEventListener('loadeddata', onLoaded);
+        audio.addEventListener('canplaythrough', onLoaded);
+        audio.addEventListener('error', onError);
+        // Some browsers never fire loadedmetadata for local blobs; avoid hanging forever.
+        timeoutId = setTimeout(async () => {
+            cleanup();
+            const decodedDuration = await decodeAudioDurationFromFile(file);
+            finish(decodedDuration);
+        }, 1500);
+        audio.load();
     });
 }
 
@@ -184,11 +329,21 @@ async function handleFileSelect(event) {
 
     for (let file of files) {
         const isImage = isImageFile(file.name);
-        const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_TEXT_FILE_SIZE;
+        const isAudio = isAudioFile(file.name);
+        // Audio: Allow up to 50MB for transcription models (Whisper/Voxtral)
+        // Actual limit depends on model - checked at send time
+        const maxSize = isImage ? MAX_IMAGE_SIZE : (isAudio ? MAX_AUDIO_SIZE_TRANSCRIPTION : MAX_TEXT_FILE_SIZE);
 
         // Check file size
         if (file.size > maxSize) {
-            alert(`File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum size is ${formatFileSize(maxSize)}.`);
+            const limitInfo = isAudio ? ' (transcription models support up to 50MB)' : '';
+            alert(`File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum size is ${formatFileSize(maxSize)}${limitInfo}.`);
+            continue;
+        }
+
+        // Only 1 audio per request (mlx-vlm limitation)
+        if (isAudio && attachedFiles.some(f => f.type === 'audio')) {
+            alert('Only one audio file can be attached per request.');
             continue;
         }
 
@@ -214,6 +369,29 @@ async function handleFileSelect(event) {
                     width: originalWidth,
                     height: originalHeight
                 });
+            } else if (isAudio) {
+                const objectUrl = URL.createObjectURL(file);
+                try {
+                const durationSeconds = await loadAudioDuration(objectUrl, file);
+                    const durationLabel = formatDuration(durationSeconds);
+                    const base64DataUrl = await readAudioAsBase64(file);
+                    const base64 = base64DataUrl.split(',')[1] || '';
+
+                    attachedFiles.push({
+                        type: 'audio',
+                        name: file.name,
+                        size: file.size,
+                        format: getAudioFormat(file.name),
+                        base64: base64,
+                        file: file,  // Keep original File for multipart upload
+                        objectUrl: objectUrl,
+                        duration: durationSeconds,
+                        durationLabel: durationLabel
+                    });
+                } catch (error) {
+                    URL.revokeObjectURL(objectUrl);
+                    throw error;
+                }
             } else {
                 // Read text file
                 const content = await readFileContent(file);
@@ -268,6 +446,19 @@ function updateAttachedFilesUI() {
                     <button class="file-remove-btn" onclick="removeAttachedFile(${index})" title="Remove image">×</button>
                 </div>
             `;
+        } else if (file.type === 'audio') {
+            const duration = file.durationLabel ? ` · ${file.durationLabel}` : '';
+            return `
+                <div class="attached-file-item attached-audio-item">
+                    <span class="file-icon">🎧</span>
+                    <div class="file-info">
+                        <span class="file-name">${escapeHtml(file.name)}</span>
+                        <span class="file-size">${formatFileSize(file.size)}${duration}</span>
+                        <audio class="audio-preview" controls src="${file.objectUrl}"></audio>
+                    </div>
+                    <button class="file-remove-btn" onclick="removeAttachedFile(${index})" title="Remove audio">×</button>
+                </div>
+            `;
         } else {
             // Text file with icon
             return `
@@ -288,6 +479,10 @@ function updateAttachedFilesUI() {
  * Removes a file from attached files list
  */
 function removeAttachedFile(index) {
+    const file = attachedFiles[index];
+    if (file && file.type === 'audio' && file.objectUrl) {
+        URL.revokeObjectURL(file.objectUrl);
+    }
     attachedFiles.splice(index, 1);
     updateAttachedFilesUI();
 }
@@ -296,6 +491,11 @@ function removeAttachedFile(index) {
  * Clears all attached files
  */
 function clearAttachedFiles() {
+    attachedFiles.forEach(file => {
+        if (file.type === 'audio' && file.objectUrl) {
+            URL.revokeObjectURL(file.objectUrl);
+        }
+    });
     attachedFiles = [];
     updateAttachedFilesUI();
 }
@@ -335,10 +535,42 @@ function getAttachedImagesForAPI() {
 }
 
 /**
+ * Gets attached audio in OpenAI input_audio format
+ * Returns array of audio content parts (max 1)
+ */
+function getAttachedAudioForAPI() {
+    return attachedFiles
+        .filter(f => f.type === 'audio')
+        .map(f => ({
+            type: 'input_audio',
+            input_audio: {
+                data: f.base64,
+                format: f.format
+            }
+        }));
+}
+
+/**
+ * Gets the first attached audio File object for transcription API (multipart upload)
+ * @returns {File|null} The original File object or null if no audio attached
+ */
+function getAttachedAudioFile() {
+    const audioFile = attachedFiles.find(f => f.type === 'audio');
+    return audioFile?.file || null;
+}
+
+/**
  * Checks if there are any attached images
  */
 function hasAttachedImages() {
     return attachedFiles.some(f => f.type === 'image');
+}
+
+/**
+ * Checks if there are any attached audio files
+ */
+function hasAttachedAudio() {
+    return attachedFiles.some(f => f.type === 'audio');
 }
 
 /**
@@ -373,6 +605,15 @@ function getAttachedFilesMetadata() {
                 width: file.width,
                 height: file.height
             };
+        } else if (file.type === 'audio') {
+            return {
+                type: 'audio',
+                name: file.name,
+                size: file.size,
+                format: file.format,
+                duration: file.duration,
+                durationLabel: file.durationLabel
+            };
         } else {
             return {
                 type: 'text',
@@ -393,4 +634,7 @@ window.getAttachedFilesContent = getAttachedFilesContent;
 window.getAttachedFilesCount = getAttachedFilesCount;
 window.getAttachedFilesMetadata = getAttachedFilesMetadata;
 window.getAttachedImagesForAPI = getAttachedImagesForAPI;
+window.getAttachedAudioForAPI = getAttachedAudioForAPI;
+window.getAttachedAudioFile = getAttachedAudioFile;
 window.hasAttachedImages = hasAttachedImages;
+window.hasAttachedAudio = hasAttachedAudio;

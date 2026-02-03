@@ -906,6 +906,22 @@ body.fullscreen-mode .footer-attribution {
     border-color: #7dd3fc;
 }
 
+.attached-audio-item {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-color: #bae6fd;
+}
+
+.attached-audio-item:hover {
+    border-color: #7dd3fc;
+}
+
+.audio-preview {
+    margin-top: 6px;
+    width: 220px;
+    max-width: 100%;
+    height: 28px;
+}
+
 #attachButton:hover {
     background: #4a5568 !important;
 }
@@ -984,6 +1000,23 @@ body.fullscreen-mode .footer-attribution {
 
 .image-attachment-chip:hover {
     border-color: #7dd3fc;
+}
+
+.audio-attachment-chip {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-color: #bae6fd;
+}
+
+.audio-attachment-chip:hover {
+    border-color: #7dd3fc;
+}
+
+.audio-chip-header {
+    cursor: default;
+}
+
+.audio-attachment-chip .file-chip-header:hover {
+    background: transparent;
 }
 
 .image-chip-header {
@@ -1495,4 +1528,84 @@ body.fullscreen-mode .footer-attribution {
 
 .structure-btn-cancel:hover {
     background: #cbd5e0;
+}
+
+/* ============================================
+   WARNING TOAST
+   ============================================ */
+
+.warning-toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 400px;
+}
+
+.warning-toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: slideIn 0.3s ease-out;
+}
+
+.warning-toast.fade-out {
+    animation: fadeOut 0.3s ease-out forwards;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+.warning-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.warning-message {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #92400e;
+    line-height: 1.4;
+}
+
+.warning-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #92400e;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.warning-close:hover {
+    opacity: 1;
 }

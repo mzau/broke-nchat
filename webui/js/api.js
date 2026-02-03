@@ -326,6 +326,15 @@ async function getComplexityPrediction(prompt) {
     }
 }
 
+// Model context length cache (model ID -> context_length)
+const modelContextLengths = new Map();
+
+// Get context length for a model (returns null if unknown)
+function getModelContextLength(modelId) {
+    return modelContextLengths.get(modelId) || null;
+}
+window.getModelContextLength = getModelContextLength;
+
 // Load available models API with fallback to standard endpoint
 async function loadAvailableModels() {
     console.log('📋 loadAvailableModels called with capabilities:', serverCapabilities);
@@ -362,10 +371,16 @@ async function loadAvailableModels() {
                 };
                 
                 // Simple categorization based on model name/size
+                // Also cache context_length if provided by server
                 models.forEach(model => {
                     const modelId = model.id;
                     const modelName = modelId.replace('mlx-community/', '');
-                    
+
+                    // Cache context_length if available (MLX Knife extension)
+                    if (model.context_length) {
+                        modelContextLengths.set(modelId, model.context_length);
+                    }
+
                     // Categorize by size hints in name
                     if (modelName.includes('mini') || modelName.includes('3b') || modelName.includes('4b')) {
                         modelsByTier.fast.push(modelId);
@@ -459,6 +474,66 @@ async function submitVoteWithContext(voteData) {
     }
 }
 
+// Audio transcription API (Whisper-compatible)
+// Returns transcription result or null if model is not a transcription model
+async function transcribeAudio(file, model, options = {}) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('model', model);
+
+    // Optional parameters
+    if (options.language) {
+        formData.append('language', options.language);
+    }
+    formData.append('response_format', options.response_format || 'json');
+    if (options.temperature !== undefined) {
+        formData.append('temperature', options.temperature.toString());
+    }
+
+    try {
+        // Build headers for authentication (if required by server)
+        const headers = {};
+        if (serverCapabilities.requiresApiKey) {
+            headers['X-API-Key'] = API_KEY;
+        }
+
+        const response = await fetch(buildApiUrl('/v1/audio/transcriptions'), {
+            method: 'POST',
+            body: formData,
+            headers: headers
+            // Note: Don't set Content-Type header - browser will set it with boundary
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+
+            // Check if this is a "not a transcription model" error
+            const errorMsg = errorData.error?.message || errorData.message || errorData.detail || '';
+            if (errorMsg.toLowerCase().includes('not a') &&
+                errorMsg.toLowerCase().includes('transcription')) {
+                console.log('[AUDIO] Model is not a transcription model, will fallback to chat');
+                return null; // Signal to fallback to chat/completions
+            }
+
+            // ADR-004 envelope detection
+            if (errorData.status === 'error' && errorData.error?.type) {
+                const err = errorData.error;
+                throw new Error(`${err.type}: ${err.message}`);
+            }
+
+            throw new Error(errorMsg || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        // Network errors or parse errors
+        if (error.message.includes('not a') && error.message.includes('transcription')) {
+            return null;
+        }
+        throw error;
+    }
+}
+
 // Chat completions API
 async function createChatCompletion(requestBody) {
     const response = await fetchWithAuth(buildApiUrl('/v1/chat/completions'), {
@@ -482,14 +557,46 @@ async function createChatCompletion(requestBody) {
             });
         }
 
+        // Capture X-Request-ID for debugging (MLX Knife extension)
+        const requestId = response.headers.get('X-Request-ID');
+        if (requestId) {
+            console.log(`[API Error] X-Request-ID: ${requestId}`);
+        }
+
         // Try to extract detailed error message from server response
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+        // HTTP 507: Insufficient Storage (Memory constraints)
+        if (response.status === 507) {
+            errorMessage = 'Insufficient Memory: Model too large for available RAM. ' +
+                           'Try a smaller quantized model (e.g., 4-bit instead of 8-bit).';
+        }
 
         try {
             const errorData = await response.json();
 
-            // Try various error message formats (OpenAI, FastAPI, custom)
-            if (errorData.error?.message) {
+            // ADR-004 envelope detection: {status: "error", error: {type, message, retryable}}
+            if (errorData.status === 'error' && errorData.error?.type) {
+                const err = errorData.error;
+                const typeLabels = {
+                    'validation_error': 'Validation Error',
+                    'model_not_found': 'Model Not Found',
+                    'internal_error': 'Internal Error',
+                    'server_shutdown': 'Server Shutdown',
+                    'insufficient_memory': 'Insufficient Memory',
+                    'access_denied': 'Access Denied',
+                    'ambiguous_match': 'Ambiguous Match',
+                    'download_failed': 'Download Failed'
+                };
+                errorMessage = `${typeLabels[err.type] || err.type}: ${err.message}`;
+                if (err.retryable) {
+                    errorMessage += ' (retryable)';
+                }
+                // Log request_id for debugging if present
+                if (errorData.request_id) {
+                    console.log(`[API] Request-ID: ${errorData.request_id}`);
+                }
+            } else if (errorData.error?.message) {
                 // OpenAI-style: { error: { message: "...", type: "..." } }
                 errorMessage = errorData.error.message;
             } else if (errorData.error) {

@@ -44,6 +44,36 @@ window.updateConnectionStatus = function(connected, message = '') {
     }
 };
 
+// Show warning toast (auto-dismisses after 5 seconds)
+window.showWarning = function(message, duration = 5000) {
+    // Create or reuse warning container
+    let container = document.getElementById('warningToastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'warningToastContainer';
+        container.className = 'warning-toast-container';
+        document.body.appendChild(container);
+    }
+
+    // Create warning toast
+    const toast = document.createElement('div');
+    toast.className = 'warning-toast';
+    toast.innerHTML = `
+        <span class="warning-icon">⚠️</span>
+        <span class="warning-message">${message}</span>
+        <button class="warning-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(toast);
+
+    // Auto-dismiss
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('fade-out');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, duration);
+};
+
 window.updateModelInfo = function(model = '', complexity = null, responseTime = null) {
     // Model info is now shown in message headers only, not in status bar
     // This function is kept for backward compatibility but does nothing
@@ -120,6 +150,17 @@ window.renderFileAttachments = function(files) {
                     </div>
                     <div class="file-chip-content image-chip-content" id="${fileId}" style="display: none;">
                         <img src="${file.thumbnail}" alt="${escapeHtmlForChat(file.name)}" class="image-preview-large">
+                    </div>
+                </div>
+            `;
+        } else if (file.type === 'audio') {
+            const duration = file.durationLabel ? ` · ${file.durationLabel}` : '';
+            return `
+                <div class="file-attachment-chip audio-attachment-chip">
+                    <div class="file-chip-header audio-chip-header">
+                        <span class="file-chip-icon">🎧</span>
+                        <span class="file-chip-name">${escapeHtmlForChat(file.name)}</span>
+                        <span class="file-chip-size">${sizeFormatted}${duration}</span>
                     </div>
                 </div>
             `;
