@@ -4,7 +4,7 @@
   <img src="webui/assets/broke-beaver-logo.png" alt="BROKE Beaver" height="33" style="vertical-align: baseline; margin-bottom: -2px;">nChat
 </h1>
 
-<strong>Version 0.1.5-beta</strong>
+<strong>Version 0.1.6-beta</strong>
 
 <em>The new way to chat with your LLMs</em>
 
@@ -26,6 +26,7 @@ A simple, universal web chat client for OpenAI-compatible APIs.
 - **Real-time Streaming**: Token-by-token streaming with Server-Sent Events
 - **Markdown Support**: Code blocks, lists, links, tables, emphasis
 - **🖼️ Vision/Image Upload** *(v0.1.5-beta)*: Multi-image support with OpenAI Vision API (JPEG, PNG, GIF, WebP up to 20MB)
+- **🎧 Audio Upload** *(v0.1.6-beta)*: Audio file upload (mp3, wav) with hybrid transcription support (Whisper-compatible endpoint + multimodal chat, up to 50MB)
 - **🗑️ Message Deletion** *(v0.1.5-beta)*: Delete individual messages to clean up conversation context and reduce hallucination
 - **📎 File Upload**: Multi-file text attachments (25+ programming languages)
 - **💾 Smart Code Download**: Intelligent filename detection with download buttons on all code blocks
@@ -37,6 +38,7 @@ A simple, universal web chat client for OpenAI-compatible APIs.
 **Maturity Status:**
 - ✅ **Beta** for Standard OpenAI APIs (tested with mlx-knife)
 - ✅ **Beta** for Vision API (v0.1.5-beta) - *Server-side image numbering fix pending*
+- ✅ **Beta** for Audio API (v0.1.6-beta) - Hybrid transcription + multimodal chat
 - ⚠️ **Alpha** for BROKE Cluster (experimental features)
 
 ### Enhanced Mode Features
@@ -249,7 +251,7 @@ broke-nchat/
 - **Lexer/Parser**: Robust filename detection using compiler-style architecture
 - **Session Caching**: Server capabilities cached for 5 minutes
 - **Graceful Degradation**: Works even if certain endpoints are missing
-- **localStorage**: Persists chat history and model selection
+- **sessionStorage**: Ephemeral chat history (cleared on tab close)
 - **File System Access API**: Native save dialogs (Chrome/Edge) with fallback (Firefox/Safari)
 
 ## Browser Compatibility
@@ -283,6 +285,9 @@ See `webui/COMPATIBILITY_NOTES.md` for detailed endpoint documentation.
 - `GET /health` - Health check
 - `GET /v1/models` - List available models
 - `POST /v1/chat/completions` - Chat endpoint with streaming
+
+**Optional Standard Endpoints:**
+- `POST /v1/audio/transcriptions` - Audio transcription (Whisper-compatible, hybrid fallback to chat)
 
 **Optional Enhanced Endpoints:**
 - `GET /debug/models` - Extended model information
