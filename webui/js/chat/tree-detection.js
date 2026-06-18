@@ -420,7 +420,19 @@ function generateSyntheticProjectStructure(messageElement) {
     // (Could be implemented later with file content parsing)
 
     // Combine files with and without paths
-    const allFiles = [...filesWithPaths, ...filesWithoutPaths];
+    const combinedFiles = [...filesWithPaths, ...filesWithoutPaths];
+
+    // Dedup by fullPath — last-wins (Dedup-P1 / ADR-005).
+    // A regenerated file is emitted as several code blocks sharing one fullPath
+    // (e.g. the model rewrites main.js later in the same message). Without dedup the
+    // modal count is inflated and the save loop processes the same file twice. Keep the
+    // LAST occurrence so the surviving entry mirrors the newest emission; bulk-download.js
+    // pairs this by matching the LAST code block in the DOM (newest content).
+    const dedupedByPath = new Map();
+    for (const file of combinedFiles) {
+        dedupedByPath.set(file.fullPath, file); // later entries overwrite earlier → last-wins
+    }
+    const allFiles = Array.from(dedupedByPath.values());
 
     return {
         rootName: rootName,

@@ -329,12 +329,14 @@ async function performBulkDownload(buttonElement, structure, event, metadata = {
         // Find code block by fullPath or basename
         let downloadBtn = null;
 
-        // Try exact fullPath match first
-        downloadBtn = allCodeBlocks.find(btn => btn.getAttribute('data-fullpath') === fileInfo.fullPath);
+        // Try exact fullPath match first — LAST match wins (Dedup-P1).
+        // When a file is regenerated, several code blocks share one fullPath; the LAST
+        // is the newest revision, so we must save that one. find() would save the oldest.
+        downloadBtn = allCodeBlocks.findLast(btn => btn.getAttribute('data-fullpath') === fileInfo.fullPath);
 
-        // Fallback: match by basename
+        // Fallback: match by basename (also last-wins, same newest-revision reasoning)
         if (!downloadBtn) {
-            downloadBtn = allCodeBlocks.find(btn => btn.getAttribute('data-filename') === fileInfo.name);
+            downloadBtn = allCodeBlocks.findLast(btn => btn.getAttribute('data-filename') === fileInfo.name);
         }
 
         if (!downloadBtn) {
