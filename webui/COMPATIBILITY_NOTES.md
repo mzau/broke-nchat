@@ -4,6 +4,10 @@
 
 This WebUI automatically detects and adapts to different server capabilities. It works with any OpenAI-compatible API server and enables additional features when connected to a BROKE Cluster server.
 
+Beyond text chat it supports **multimodal input** (image / audio in `/v1/chat/completions`), **audio transcription** (`/v1/audio/transcriptions`), and **saving generated files** to a local directory (File System Access API). These are gated on the connected model/server actually supporting them; the WebUI degrades gracefully when they are absent.
+
+> **Doc currency:** reflects the WebUI as of **v0.1.6-beta**. Client auth is `X-API-Key` (see [Security Considerations](#security-considerations)).
+
 ## Server Detection
 
 The WebUI uses binary detection to determine server type:
@@ -103,6 +107,25 @@ data: [DONE]
 ```
 
 **Usage**: Main chat functionality with real-time token streaming.
+
+#### Multimodal Content (Vision & Audio)
+
+`/v1/chat/completions` also accepts OpenAI-style multimodal `content` arrays, sent when the user attaches files and the selected model supports the modality:
+
+- **Vision** — `{"type": "image_url", "image_url": {"url": "data:image/png;base64,…"}}`
+- **Audio in chat** — `{"type": "input_audio", "input_audio": {"data": "<base64>", "format": "wav"|"mp3"}}`
+
+If the model does not support the modality the server returns an error, which the WebUI surfaces. Reloading the page keeps the conversation but strips binary image/audio payloads from history (text-only follow-ups).
+
+### Audio Transcription (optional)
+
+```
+POST /v1/audio/transcriptions
+Content-Type: multipart/form-data   (fields: file, model, [language], [response_format], [temperature])
+Headers: X-API-Key: <api-key>       (when the server requires auth)
+```
+
+For **dedicated STT models** (Whisper, Voxtral). The WebUI routes audio by model: known STT models → this endpoint; known multimodal chat models → `/v1/chat/completions` with `input_audio`. Optional — only needed for STT-model transcription.
 
 ## BROKE Cluster Endpoints
 
@@ -208,6 +231,9 @@ Headers: X-API-Key: <api-key>
 | Chat functionality | ✅ | ✅ |
 | Streaming responses | ✅ | ✅ |
 | Markdown rendering | ✅ | ✅ |
+| Vision input (`image_url`) ¹ | ✅ | ✅ |
+| Audio input / transcription ¹ | ✅ | ✅ |
+| Save / bulk-download generated files ² | ✅ | ✅ |
 | Model selector dropdown | ✅ | ❌ |
 | Debug panel | ❌ | ✅ |
 | Auto/Manual mode toggle | ❌ | ✅ |
@@ -216,6 +242,9 @@ Headers: X-API-Key: <api-key>
 | Star ratings | ❌ | ✅ |
 | Routing info modal | ❌ | ✅ |
 | API key requirement | Optional | Required |
+
+¹ Multimodal rows require a connected model/server that supports the modality (a vision or STT model); the WebUI degrades gracefully when unsupported.
+² File saving uses the browser File System Access API (Chromium-based browsers); Firefox/Safari fall back to standard per-file downloads.
 
 ## UI Adaptations
 
@@ -347,9 +376,10 @@ This enables auto-routing, manual override, and training data collection.
 
 ## Security Considerations
 
-- API key sent in `X-API-Key` header (not URL)
+- API key sent in `X-API-Key` header (not URL) — **including on the multipart `/v1/audio/transcriptions` upload** (a common server-side mistake is to auth JSON endpoints but forget file-upload ones)
 - API key required for all `/debug/*` endpoints
 - Standard `/v1/*` endpoints may not require auth
+- A fronting auth proxy for browser clients may instead expect `Authorization: Bearer <key>` (passes the CORS preflight); the WebUI's own requests use `X-API-Key`
 - CORS must be configured for browser access
 - Rate limiting recommended for `/debug/complexity` and `/debug/vote`
 
