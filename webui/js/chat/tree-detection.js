@@ -28,7 +28,9 @@ function isProjectStructure(codeContent) {
     if (lines.length < 3) return false; // Need at least 3 lines
 
     // Pattern: Lines with tree symbols (Unicode, ASCII, or broken UTF-8)
-    const treePattern = /[├└│─�]|[+\\|]--/;
+    // ASCII connector is one-or-more dashes: matches both |-- (two-dash) and |- (single-dash,
+    // e.g. Deep-Hermes rootless trees). See TREE-GRAMMAR.md §4.1.
+    const treePattern = /[├└│─�]|[+\\|]-+/;
     const treeLines = lines.filter(line => treePattern.test(line));
 
     // Pattern: Lines with file/directory patterns
@@ -53,6 +55,26 @@ function isProjectStructure(codeContent) {
 }
 
 /**
+ * Column where a tree line's NODE connector begins — the depth signal for the column stack.
+ * Node connectors: Unicode ├ └ (and broken �), ASCII +- |- \- (one-or-more dashes).
+ * A bare │ or | that is NOT followed by '-' is a vertical SPACER (an ancestor rail) and must
+ * NOT be treated as a connector — counting the |- rail's own '|' as a nesting level was the
+ * rootless-sibling bug (|- frontend mis-nested under |- backend). Returns the 0-based column,
+ * or -1 if the line carries no branch glyph (caller falls back to first-non-space).
+ * See TREE-GRAMMAR.md §4.1/§8.
+ * @param {string} line
+ * @returns {number}
+ */
+function connectorColumn(line) {
+    let col = -1;
+    const uni = line.search(/[├└�]/);      // Unicode node glyph (├ └) or broken UTF-8 (�)
+    if (uni >= 0) col = uni;
+    const ascii = line.search(/[+\\|]-+/);  // ASCII connector: +-, |-, \- (one-or-more dashes)
+    if (ascii >= 0 && (col === -1 || ascii < col)) col = ascii;
+    return col;
+}
+
+/**
  * Parses project structure from code block into a file tree
  * Returns: { rootName: string, files: [{path: string, name: string}] }
  */
@@ -61,6 +83,9 @@ function parseProjectStructure(codeContent) {
     const files = [];
     let rootName = 'project';
     let currentPath = [];
+    // Column stack for relative DEDENT: colStack[d] = connector column at depth d.
+    // Compared step-agnostically (no hardcoded indent width) — see TREE-GRAMMAR.md §8.
+    let colStack = [];
 
     // Check if first line is an explicit root directory or starts with tree symbols
     let startIndex = 1; // Default: skip first line (it's the root)
@@ -69,7 +94,8 @@ function parseProjectStructure(codeContent) {
     if (lines.length > 0) {
         const firstLine = lines[0];
         // If first line starts with tree symbols (Unicode or ASCII), there's NO explicit root
-        if (/^[├└│─�]|^[+\\|]--/.test(firstLine)) {
+        // (one-or-more dashes: |- single-dash rootless trees too)
+        if (/^[├└│─�]|^[+\\|]-+/.test(firstLine)) {
             rootName = 'project'; // Default root name
             startIndex = 0; // Parse from first line
             hasExplicitRoot = false; // No explicit root → adjust depth calculation
@@ -125,74 +151,37 @@ function parseProjectStructure(codeContent) {
             isDirectory = !knownFilesWithoutExt.includes(name);
         }
 
-        // Calculate depth from indentation (original line)
-        // Strategy: Find the branch symbol (├ or └, or ASCII +-- / \--), count everything before it
+        // Calculate depth from indentation via a RELATIVE column stack (TREE-GRAMMAR.md §8).
+        // The connector column is the depth signal; compare it to the open levels' columns.
+        // This is step-agnostic — no hardcoded indent width, no "learn the step", no counting
+        // │/| rails — so box (├──), single-dash (|-), double-dash (|--) and any indent width
+        // are handled uniformly. The previous formula (verticalBars + floor(spaces/4)) counted
+        // the |- connector's own '|' as an ancestor bar, which mis-nested rootless siblings
+        // (|- frontend at column 0 nested under |- backend → backend/frontend/...).
         //
-        // Example (Unicode):
-        //   ├── src/              branchPos=0, before='', │=0, spaces=0 → depth=0
-        //   │   ├── main.rs       branchPos=4, before='│   ', │=1, spaces=3 → depth=1
-        //   │       ├── lib.rs    branchPos=8, before='│       ', │=1, spaces=7 → depth=2
+        //   |- backend            col 0  → depth 0
+        //       |- src            col 4  → depth 1   (col 4 > 0  → INDENT)
+        //           |- main.rs    col 8  → depth 2   (col 8 > 4  → INDENT)
+        //   |- frontend           col 0  → depth 0   (col 0 < 8/4 → DEDENT to col-0 sibling)
         //
-        // Example (ASCII):
-        //   +-- src/              branchPos=0, before='', |=0, spaces=0 → depth=0
-        //   |   +-- main.rs       branchPos=4, before='|   ', |=1, spaces=3 → depth=1
-        //   |       +-- lib.rs    branchPos=8, before='|       ', |=1, spaces=7 → depth=2
-        //
-        // Formula: depth = floor(spacesOnly/4) + verticalBars
-        // Where spacesOnly = characters before branch symbol, excluding │ or |
-        //
-        // Note: � (U+FFFD) is the Unicode replacement char for broken UTF-8 box-drawing symbols
-        // We treat it as equivalent to └ (common in LLM outputs with encoding issues)
-        // Can appear as single � or double �� depending on how many bytes were corrupted
-
-        // Find branch position (Unicode: ├└, ASCII: +-- \-- |--, Broken: �)
-        let branchPos = -1;
-
-        // Unicode branches
-        branchPos = Math.max(
-            line.lastIndexOf('├'),
-            line.lastIndexOf('└'),
-            line.lastIndexOf('�')  // Broken UTF-8 box-drawing char
-        );
-
-        // ASCII branches (if no Unicode found)
-        if (branchPos === -1) {
-            const asciiMatch = line.match(/[+\\|]--/);
-            if (asciiMatch) {
-                branchPos = asciiMatch.index;
-            }
+        // � (U+FFFD) is the replacement char for broken UTF-8 box glyphs; connectorColumn()
+        // treats it as a node connector. Pure-indentation lines (no glyph) fall back to the
+        // first non-space column so space-only trees still stack correctly.
+        let col = connectorColumn(line);
+        if (col < 0) {
+            const firstNonSpace = line.search(/\S/);
+            col = firstNonSpace < 0 ? 0 : firstNonSpace;
         }
 
-        let depth = 0;
+        // DEDENT: drop levels deeper than this column.
+        while (colStack.length > 0 && colStack[colStack.length - 1] > col) colStack.pop();
 
-        if (branchPos >= 0) {
-            // Extract everything before the branch symbol
-            const beforeBranch = line.substring(0, branchPos);
-
-            // Count vertical bars before branch (Unicode │ or ASCII |)
-            // Each vertical bar represents one nesting level
-            const unicodeVertical = (beforeBranch.match(/│/g) || []).length;
-            const asciiVertical = (beforeBranch.match(/\|/g) || []).length;
-            const verticalBars = unicodeVertical + asciiVertical;
-
-            // Count spaces (excluding │, |, ─, and other non-space chars)
-            const spacesOnly = beforeBranch.replace(/[│─|]/g, '').length;
-
-            // Adaptive depth formula: handles both compact (3-space) and wide (7-space) trees
-            // - Each │ = 1 base level
-            // - After accounting for typical spacing (~3 spaces per │), extra spaces indicate deeper nesting
-            const baseSpacesPerBar = 3; // Minimum expected spaces per │
-            const extraSpaces = Math.max(0, spacesOnly - (verticalBars * baseSpacesPerBar));
-
-            depth = verticalBars + Math.floor(extraSpaces / 4);
+        let depth;
+        if (colStack.length > 0 && colStack[colStack.length - 1] === col) {
+            depth = colStack.length - 1;   // sibling at an existing level
         } else {
-            // Fallback: No branch symbol found (shouldn't happen in valid trees)
-            // Use old logic as safety net
-            const leadingSpaces = line.search(/[^\s]/);
-            const unicodeVertical = (line.match(/│/g) || []).length;
-            const asciiVertical = (line.match(/\|/g) || []).length;
-            const verticalBars = unicodeVertical + asciiVertical;
-            depth = Math.floor(leadingSpaces / 4) + verticalBars;
+            depth = colStack.length;       // INDENT (or the first node) → new deeper level
+            colStack.push(col);
         }
 
         // Update current path based on depth
