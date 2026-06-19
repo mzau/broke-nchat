@@ -28,9 +28,10 @@ function isProjectStructure(codeContent) {
     if (lines.length < 3) return false; // Need at least 3 lines
 
     // Pattern: Lines with tree symbols (Unicode, ASCII, or broken UTF-8)
-    // ASCII connector is one-or-more dashes: matches both |-- (two-dash) and |- (single-dash,
-    // e.g. Deep-Hermes rootless trees). See TREE-GRAMMAR.md §4.1.
-    const treePattern = /[├└│─�]|[+\\|]-+/;
+    // ASCII connector is +/|/\/` followed by one-or-more dashes: matches |-- (two-dash), |-
+    // (single-dash, Deep-Hermes), and the `tree`-style backtick last-child corner `--.
+    // See TREE-GRAMMAR.md §4.1.
+    const treePattern = /[├└│─�]|[+\\|`]-+/;
     const treeLines = lines.filter(line => treePattern.test(line));
 
     // Pattern: Lines with file/directory patterns
@@ -56,20 +57,20 @@ function isProjectStructure(codeContent) {
 
 /**
  * Column where a tree line's NODE connector begins — the depth signal for the column stack.
- * Node connectors: Unicode ├ └ (and broken �), ASCII +- |- \- (one-or-more dashes).
- * A bare │ or | that is NOT followed by '-' is a vertical SPACER (an ancestor rail) and must
- * NOT be treated as a connector — counting the |- rail's own '|' as a nesting level was the
- * rootless-sibling bug (|- frontend mis-nested under |- backend). Returns the 0-based column,
- * or -1 if the line carries no branch glyph (caller falls back to first-non-space).
+ * Node connectors: Unicode ├ └ (and broken �), ASCII +- |- \- `- (one-or-more dashes; ` is the
+ * `tree`-style last-child corner). A bare │ or | that is NOT followed by '-' is a vertical SPACER
+ * (an ancestor rail) and must NOT be treated as a connector — counting the |- rail's own '|' as a
+ * nesting level was the rootless-sibling bug (|- frontend mis-nested under |- backend). Returns the
+ * 0-based column, or -1 if the line carries no branch glyph (caller falls back to first-non-space).
  * See TREE-GRAMMAR.md §4.1/§8.
  * @param {string} line
  * @returns {number}
  */
 function connectorColumn(line) {
     let col = -1;
-    const uni = line.search(/[├└�]/);      // Unicode node glyph (├ └) or broken UTF-8 (�)
+    const uni = line.search(/[├└�]/);       // Unicode node glyph (├ └) or broken UTF-8 (�)
     if (uni >= 0) col = uni;
-    const ascii = line.search(/[+\\|]-+/);  // ASCII connector: +-, |-, \- (one-or-more dashes)
+    const ascii = line.search(/[+\\|`]-+/);  // ASCII connector: +-, |-, \-, `- (one-or-more dashes)
     if (ascii >= 0 && (col === -1 || ascii < col)) col = ascii;
     return col;
 }
@@ -94,8 +95,8 @@ function parseProjectStructure(codeContent) {
     if (lines.length > 0) {
         const firstLine = lines[0];
         // If first line starts with tree symbols (Unicode or ASCII), there's NO explicit root
-        // (one-or-more dashes: |- single-dash rootless trees too)
-        if (/^[├└│─�]|^[+\\|]-+/.test(firstLine)) {
+        // (one-or-more dashes: |- single-dash and `-- backtick-corner rootless trees too)
+        if (/^[├└│─�]|^[+\\|`]-+/.test(firstLine)) {
             rootName = 'project'; // Default root name
             startIndex = 0; // Parse from first line
             hasExplicitRoot = false; // No explicit root → adjust depth calculation
@@ -112,8 +113,8 @@ function parseProjectStructure(codeContent) {
 
         // Remove tree symbols and clean up (Unicode + ASCII variants)
         let cleaned = line
-            // First pass: Remove all leading tree symbols (Unicode + ASCII)
-            .replace(/^[├└│─�\s+\\|]+/, '')   // Remove all tree symbols and whitespace
+            // First pass: Remove all leading tree symbols (Unicode + ASCII, incl. ` last-child corner)
+            .replace(/^[├└│─�\s+\\|`]+/, '')   // Remove all tree symbols and whitespace
             // Second pass: Remove remaining dashes (from +-- or \--)
             .replace(/^-+\s*/, '')             // Remove leading dashes
             .trim();
