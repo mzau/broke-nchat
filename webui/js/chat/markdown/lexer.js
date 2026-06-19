@@ -16,35 +16,49 @@ window.scanBlockRanges = function(text) {
     let linePos = 0;
     let inBlock = false;
     let blockStart = -1;
+    let fenceLen = 0; // backtick count of the OPEN fence (CommonMark fence-length)
+
+    // A fence line: up to 3 leading spaces (CommonMark, aligns with marked.js), a run
+    // of >=3 backticks, then an optional info string.
+    //   group 2 = the backtick run; group 3 = the info string (rest of the line).
+    const FENCE = /^(\s{0,3})(`{3,})(.*)$/;
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const m = FENCE.exec(line);
 
-        // High confidence opening (with language and optional metadata)
-        // Matches: ```js, ```python file:path, ```js title="name", etc.
-        if (/^\s*```(\w+)/.test(line)) {
-            if (inBlock) {
-                // RESYNC: Close previous block, start new one
-                blockRanges.push({ start: blockStart, end: linePos });
-                blockStart = linePos + line.length + 1; // Start AFTER this line
-            } else {
-                // Start new block AFTER the opening ``` line
-                inBlock = true;
-                blockStart = linePos + line.length + 1; // +1 for \n
-            }
-        }
-        // Plain ``` (toggle)
-        else if (/^\s*```\s*$/.test(line)) {
-            if (inBlock) {
-                // Close block (INCLUDING the closing ``` delimiter)
+        if (m) {
+            const ticks = m[2].length;
+            const rest = m[3];
+            const isPure = /^\s*$/.test(rest);          // backticks + whitespace only → a close
+            const infoHasBacktick = rest.indexOf('`') !== -1;
+
+            if (!inBlock) {
+                // OPEN — any >=3 run opens, WITH or WITHOUT language/meta (meta-only fences,
+                // e.g. ``` title="src/app.js"). A valid opening info string has no backtick.
+                if (!infoHasBacktick) {
+                    inBlock = true;
+                    fenceLen = ticks;
+                    blockStart = linePos + line.length + 1; // start AFTER the opening line
+                }
+            } else if (ticks >= fenceLen && isPure) {
+                // CLOSE — a pure run of >= the opening length (INCLUDING the closing delimiter).
+                // A shorter or info-bearing fence inside the block is NOT a close (see below).
                 blockRanges.push({ start: blockStart, end: linePos + line.length });
                 inBlock = false;
                 blockStart = -1;
-            } else {
-                // Open block AFTER the opening ``` line
-                inBlock = true;
-                blockStart = linePos + line.length + 1; // +1 for \n
+                fenceLen = 0;
+            } else if (ticks >= fenceLen && !infoHasBacktick) {
+                // RESYNC — a NEW info-bearing opening at >= the current level after an
+                // unclosed block. Preserves the prior resync behavior, but only fires for
+                // fences NOT shorter than the open one; a shorter nested fence falls through
+                // to content below (this is what captures a 4-backtick block wrapping inner
+                // ``` fences as ONE block instead of splitting it).
+                blockRanges.push({ start: blockStart, end: linePos });
+                blockStart = linePos + line.length + 1;
+                fenceLen = ticks;
             }
+            // else: shorter fence, or info string containing a backtick → literal CONTENT.
         }
 
         linePos += line.length + 1; // +1 for \n
@@ -85,22 +99,10 @@ function extractInlinePathFromBlock(blockText) {
         if (explicit) {
             let pathInfo = window.normalizePath(explicit[1]);
 
-            // Models often prefix relative paths with "/" (e.g., "/src/app.ts").
-            // If the first segment is a known top-level dir (src/, backend/, client/), keep it.
-            // Otherwise treat "/<project>/" as a wrapper root and strip the first segment.
-            if (pathInfo && pathInfo.hasRoot) {
-                const withoutLeadingSlash = pathInfo.normalized.replace(/^\/+/, '');
-                const segments = withoutLeadingSlash.split('/').filter(Boolean);
-                const firstSegment = segments[0] || '';
-
-                if (window.KNOWN_TOP_LEVEL_DIRS && window.KNOWN_TOP_LEVEL_DIRS.has(firstSegment)) {
-                    pathInfo = window.normalizePath(withoutLeadingSlash);
-                } else if (segments.length > 1) {
-                    pathInfo = window.normalizePath(segments.slice(1).join('/'));
-                } else {
-                    pathInfo = window.normalizePath(withoutLeadingSlash);
-                }
-            }
+            // Models often prefix relative paths with "/" (e.g., "/src/app.ts") and may
+            // emit absolute or Windows-drive paths. Reduce to a relative path so the file
+            // saves under the chosen project root (drive/leading-slash/wrapper-root stripped).
+            pathInfo = window.stripToRelativePath(pathInfo);
 
             if (pathInfo && pathInfo.basename) {
                 return {
@@ -121,22 +123,10 @@ function extractInlinePathFromBlock(blockText) {
 
             let pathInfo = window.normalizePath(rawPath);
 
-            // Models often prefix relative paths with "/" (e.g., "/src/app.ts").
-            // If the first segment is a known top-level dir (src/, backend/, client/), keep it.
-            // Otherwise treat "/<project>/" as a wrapper root and strip the first segment.
-            if (pathInfo && pathInfo.hasRoot) {
-                const withoutLeadingSlash = pathInfo.normalized.replace(/^\/+/, '');
-                const segments = withoutLeadingSlash.split('/').filter(Boolean);
-                const firstSegment = segments[0] || '';
-
-                if (window.KNOWN_TOP_LEVEL_DIRS && window.KNOWN_TOP_LEVEL_DIRS.has(firstSegment)) {
-                    pathInfo = window.normalizePath(withoutLeadingSlash);
-                } else if (segments.length > 1) {
-                    pathInfo = window.normalizePath(segments.slice(1).join('/'));
-                } else {
-                    pathInfo = window.normalizePath(withoutLeadingSlash);
-                }
-            }
+            // Models often prefix relative paths with "/" (e.g., "/src/app.ts") and may
+            // emit absolute or Windows-drive paths. Reduce to a relative path so the file
+            // saves under the chosen project root (drive/leading-slash/wrapper-root stripped).
+            pathInfo = window.stripToRelativePath(pathInfo);
 
             if (pathInfo && pathInfo.basename) {
                 const isKnownBasename = window.KNOWN_BASENAMES_WITHOUT_EXT.some(

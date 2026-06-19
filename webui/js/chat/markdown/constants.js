@@ -222,6 +222,38 @@ window.normalizePath = function(rawPath) {
     };
 };
 
+/**
+ * Reduce an absolute or wrapper-rooted path to a relative one suitable for saving
+ * under the user-picked project root. The app saves via the File System Access API
+ * (always relative to a chosen directory), so absolute destinations cannot be honored
+ * literally — we normalize them instead of dropping or mangling them ("never lose content").
+ *
+ * Handles, uniformly:
+ *   - leading-slash absolute:  /src/app.js          -> src/app.js
+ *   - Windows drive:           C:\proj\src\app.js   -> src/app.js   (drive + wrapper root stripped)
+ *   - wrapper root:            /myproject/src/app.js -> src/app.js
+ * A known top-level dir (src/, backend/, …) as the first segment is kept; otherwise a
+ * single leading wrapper segment is dropped. Relative paths pass through unchanged.
+ *
+ * @param {Object|null} pathInfo - result of normalizePath()
+ * @returns {Object|null} a (possibly re-normalized) pathInfo, relative
+ */
+window.stripToRelativePath = function(pathInfo) {
+    if (!pathInfo || (!pathInfo.hasRoot && !pathInfo.isWindowsDrive)) return pathInfo;
+
+    // Drop a Windows drive prefix (e.g. "C:/") and any leading slash(es).
+    const rel = pathInfo.normalized.replace(/^[A-Za-z]:\/?/, '').replace(/^\/+/, '');
+    const segments = rel.split('/').filter(Boolean);
+    const firstSegment = segments[0] || '';
+
+    if (window.KNOWN_TOP_LEVEL_DIRS && window.KNOWN_TOP_LEVEL_DIRS.has(firstSegment)) {
+        return window.normalizePath(rel);
+    } else if (segments.length > 1) {
+        return window.normalizePath(segments.slice(1).join('/'));
+    }
+    return window.normalizePath(rel);
+};
+
 // ============================================
 // TOKEN PATTERNS (Lexer Rules)
 // ============================================
@@ -368,7 +400,7 @@ window.TOKEN_PATTERNS = {
         },
         {
             // Pattern 1a: Backtick-wrapped DOTFILES in headings
-            regex: /^#{1,6}\s+[^\n`]*?`((?:[\w\-]+\/)*(\.\w[\w\-]*))`/m,
+            regex: /^#{1,6}\s+[^\n`]*?`((?:[\w\-]+\/)*(\.\w[\w\-]*(?:\.\w[\w\-]*)*))`/m,
             extract: (m) => {
                 const pathInfo = window.normalizePath(m[1].replace(/\\/g, ''));
                 if (!pathInfo) return null;
@@ -687,7 +719,7 @@ window.TOKEN_PATTERNS = {
         },
         // Backtick-wrapped dotfiles: `.env`, `.gitignore`, etc.
         {
-            regex: /`((?:[\w\-]+\/)*(\.\w[\w\-]*))`/,
+            regex: /`((?:[\w\-]+\/)*(\.\w[\w\-]*(?:\.\w[\w\-]*)*))`/,
             allowStandalone: true, // High-confidence dotfiles allowed standalone
             extract: (m) => {
                 const pathInfo = window.normalizePath(m[1]);
@@ -754,7 +786,7 @@ window.TOKEN_PATTERNS = {
         // Dotfiles after TERM_FILE: .env, .gitignore, etc.
         // BNF-GRAMMAR v0.1.3: <filename-token> supports dotfiles
         {
-            regex: /(\.\w[\w\-]*)\b/,
+            regex: /(\.\w[\w\-]*(?:\.\w[\w\-]*)*)\b/,
             extract: (m) => {
                 const basename = m[1];
                 const extension = basename.substring(1); // Extension is everything after the dot
@@ -795,9 +827,9 @@ window.TOKEN_PATTERNS = {
     // Terminal: Code block start ```language (with optional metadata)
     TERM_BLOCKSTART: [
         {
-            regex: /^```([^\n]*)/m,  // start of line fence, capture full meta segment
+            regex: /^(`{3,})([^\n]*)/m,  // >=3 backticks (fence-length), capture full meta segment
             extract: (m) => {
-                const opener = m[1] || '';
+                const opener = m[2] || '';
                 const langMatch = opener.trim().match(/^([\w-]+)/);
                 const language = langMatch ? langMatch[1] : 'text';
 
@@ -805,22 +837,10 @@ window.TOKEN_PATTERNS = {
                 const metaMatch = opener.match(/\b(?:title|file|filename|path)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`|([^\s]+))/i);
                 const rawPath = metaMatch ? (metaMatch[1] || metaMatch[2] || metaMatch[3] || metaMatch[4]) : null;
                 let pathInfo = rawPath ? window.normalizePath(rawPath) : null;
-                // Models may include a leading "/" on relative paths.
-                // If the first segment is a known top-level dir (src/, backend/, client/), keep it.
-                // Otherwise treat "/<project>/" as a wrapper root and strip the first segment.
-                if (pathInfo && pathInfo.hasRoot) {
-                    const withoutLeadingSlash = pathInfo.normalized.replace(/^\/+/, '');
-                    const segments = withoutLeadingSlash.split('/').filter(Boolean);
-                    const firstSegment = segments[0] || '';
-
-                    if (window.KNOWN_TOP_LEVEL_DIRS && window.KNOWN_TOP_LEVEL_DIRS.has(firstSegment)) {
-                        pathInfo = window.normalizePath(withoutLeadingSlash);
-                    } else if (segments.length > 1) {
-                        pathInfo = window.normalizePath(segments.slice(1).join('/'));
-                    } else {
-                        pathInfo = window.normalizePath(withoutLeadingSlash);
-                    }
-                }
+                // Models may include a leading "/" on relative paths, or absolute/Windows
+                // paths in fence metadata. Reduce to a relative path so the file saves under
+                // the chosen project root (drive/leading-slash/wrapper-root stripped).
+                pathInfo = window.stripToRelativePath(pathInfo);
 
                 return {
                     language: language || 'text',
