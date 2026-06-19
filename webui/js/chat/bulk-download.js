@@ -8,6 +8,17 @@
 const BULK_STATE_KEY = 'broke_bulk_download_state';
 
 /**
+ * INTERIM (0.1.7): session-canonical project root.
+ * rootName is detected per-message, so multi-turn conversations can drift the root and split a
+ * project across sibling roots (see memory bug-multiturn-root-misroot). We pin ONE canonical
+ * root for the session — set once by the first save that declares a root — and strip only that.
+ * Reset is free: Shift+Click already removes BULK_STATE_KEY (wiping the canonical root too).
+ * Throwaway: OPFS Session-Root-SSOT (ADR-006, 0.2.0) replaces this structurally.
+ */
+const SESSION_ROOT_ENABLED = true;        // kill-switch for the interim behavior
+const SESSION_ROOT_KEY = '__sessionRoot'; // reserved key in BULK_STATE_KEY (cannot collide with a hex message hash)
+
+/**
  * Get message hash from message div (for state persistence)
  */
 function getMessageHashFromDiv(messageDiv) {
@@ -39,12 +50,15 @@ function persistBulkState(messageHash, payload) {
     if (!messageHash || !payload) return;
 
     try {
-        // SINGLE SESSION MODEL: Clear all old sessions
+        // SINGLE SESSION MODEL: Clear all old per-message sessions, but PRESERVE the
+        // session-canonical root (INTERIM, see SESSION_ROOT_KEY above).
+        const prev = JSON.parse(sessionStorage.getItem(BULK_STATE_KEY) || '{}');
         const allState = {
             [messageHash]: {
                 ...payload
             }
         };
+        if (prev[SESSION_ROOT_KEY]) allState[SESSION_ROOT_KEY] = prev[SESSION_ROOT_KEY];
 
         // Save to sessionStorage (cleared on tab close)
         sessionStorage.setItem(BULK_STATE_KEY, JSON.stringify(allState));
@@ -69,6 +83,40 @@ function getPersistedBulkState(messageHash) {
         return null;
     }
 }
+
+/**
+ * Read the session-canonical root, or null if unset/disabled (INTERIM — see SESSION_ROOT_KEY).
+ */
+function getCanonicalRoot() {
+    if (!SESSION_ROOT_ENABLED) return null;
+    try {
+        const all = JSON.parse(sessionStorage.getItem(BULK_STATE_KEY) || '{}');
+        return all[SESSION_ROOT_KEY] || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+/**
+ * Set the canonical root once (first declared root wins); returns the effective canonical root.
+ */
+function establishCanonicalRoot(name) {
+    if (!SESSION_ROOT_ENABLED || !name) return getCanonicalRoot();
+    try {
+        const all = JSON.parse(sessionStorage.getItem(BULK_STATE_KEY) || '{}');
+        if (!all[SESSION_ROOT_KEY]) {
+            all[SESSION_ROOT_KEY] = name;
+            sessionStorage.setItem(BULK_STATE_KEY, JSON.stringify(all));
+            console.log(`[BULK-DOWNLOAD] Session-canonical root established: "${name}" (interim)`);
+        }
+        return all[SESSION_ROOT_KEY];
+    } catch (_) {
+        return getCanonicalRoot();
+    }
+}
+
+window.getCanonicalRoot = getCanonicalRoot;
+window.establishCanonicalRoot = establishCanonicalRoot;
 
 /**
  * Exported helper to fetch bulk state for a given message

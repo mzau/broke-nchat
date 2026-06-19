@@ -254,9 +254,17 @@ function showStructureReviewModal(structure, onConfirm, conflicts = null, option
     // Initialize preview
     updateTargetPreview();
 
-    // Calculate summary stats
+    // Calculate summary stats.
+    // Count directories that contain files, including the project root itself when files live
+    // there (a flat project of root-level files is "1 directory", not "0").
     const totalFiles = structure.files.length;
-    const uniqueDirs = new Set(structure.files.map(f => f.path).filter(p => p)).size;
+    const dirSet = new Set();
+    let hasRootFile = false;
+    structure.files.forEach(f => {
+        const d = (f.path || '').replace(/^\/+|\/+$/g, '');
+        if (d) dirSet.add(d); else hasRootFile = true;
+    });
+    const uniqueDirs = dirSet.size + (hasRootFile ? 1 : 0);
     let summaryHTML = `${totalFiles} file${totalFiles !== 1 ? 's' : ''} in ${uniqueDirs} director${uniqueDirs !== 1 ? 'ies' : 'y'}`;
 
     // BUG FIX: Add conflict strategy info in view-only modal

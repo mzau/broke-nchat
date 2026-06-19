@@ -129,6 +129,14 @@ function addDownloadButtonsToCodeBlocks(html, originalText) {
         // Check if this is a project structure FIRST (highest priority)
         const isStructure = window.isProjectStructure && window.isProjectStructure(codeContent);
 
+        // Sanitized copy for the SAVE/DISPLAY path only. Detection and parsing below stay on the
+        // raw codeContent (isProjectStructure / tree parsing rely on U+FFFD as a branch glyph). A
+        // structure block maps U+FFFD → a box connector so project.txt renders cleanly; in a real
+        // code file the replacement char is decode noise, so it is stripped.
+        const codeForSave = isStructure
+            ? (window.sanitizeMojibake ? window.sanitizeMojibake(codeContent) : codeContent)
+            : codeContent.replace(/�+/g, '');
+
         // HIGH CONFIDENCE detection only
         let detectedFilename = null;
         let detectedFullPath = null;
@@ -176,7 +184,7 @@ function addDownloadButtonsToCodeBlocks(html, originalText) {
                 downloadBtn.setAttribute('title', 'Download code');
             }
 
-            downloadBtn.setAttribute('data-code', codeContent);
+            downloadBtn.setAttribute('data-code', codeForSave);
             downloadBtn.setAttribute('data-filename', detectedFilename || '');
             downloadBtn.setAttribute('data-fullpath', detectedFullPath || ''); // For bulk download
             downloadBtn.setAttribute('data-language', language);
@@ -189,7 +197,7 @@ function addDownloadButtonsToCodeBlocks(html, originalText) {
             clipboardBtn.innerHTML = '📋';
             clipboardBtn.setAttribute('title', 'Copy to clipboard');
             clipboardBtn.setAttribute('onclick', `copyCodeToClipboard(this)`);
-            clipboardBtn.setAttribute('data-code', codeContent);
+            clipboardBtn.setAttribute('data-code', codeForSave);
 
             // Add language label + buttons container
             const headerDiv = doc.createElement('div');
@@ -447,6 +455,7 @@ window.downloadCode = async function(buttonElement, event) {
 
             // Clear entire File-State-API sessionStorage (Single-Session Model)
             try {
+                // Also wipes the session-canonical root (INTERIM) → next save re-establishes it.
                 sessionStorage.removeItem('broke_bulk_download_state');
                 console.log('[DOWNLOAD] Shift+Click: Cleared File-State-API (fresh session)');
             } catch (err) {
@@ -486,6 +495,14 @@ window.downloadCode = async function(buttonElement, event) {
         const bulkState = window.getBulkStateForMessage ? window.getBulkStateForMessage(messageDiv) : null;
         const rootNameFromState = bulkState?.structure?.rootName || bulkState?.structure?.rootHandleName || null;
 
+        // INTERIM (0.1.7): pin a session-canonical root so multi-turn root drift doesn't split the
+        // project across sibling roots. The first save with a declared root sets the canon; from
+        // then on we strip the CANONICAL root (not this message's possibly-drifted root).
+        // OPFS Session-Root-SSOT (ADR-006, 0.2.0) replaces this structurally.
+        const effectiveRoot = (window.establishCanonicalRoot && rootNameFromState)
+            ? window.establishCanonicalRoot(rootNameFromState)
+            : ((window.getCanonicalRoot ? window.getCanonicalRoot() : null) || rootNameFromState);
+
         // Allow inline path edit (Alt+Click) without changing root
         // IMPORTANT: Alt+Click should show ORIGINAL path (before root stripping)
         if (event && event.altKey) {
@@ -503,13 +520,14 @@ window.downloadCode = async function(buttonElement, event) {
             // Use previously edited custom path
             targetPath = buttonElement.getAttribute('data-custom-path');
         } else {
-            // Normal download (no Alt+Click): Strip tree root from targetPath
-            // This ensures paths are relative to project root (consistent with bulk download)
-            if (rootNameFromState && targetPath) {
+            // Normal download (no Alt+Click): Strip the session-canonical root from targetPath so
+            // paths are relative to the project root (consistent with bulk download) and stay under
+            // ONE tree across turns (INTERIM, see establishCanonicalRoot in bulk-download.js).
+            if (effectiveRoot && targetPath) {
                 const normalized = targetPath.replace(/^\/+/, '');
-                if (normalized.startsWith(rootNameFromState + '/')) {
-                    targetPath = normalized.substring(rootNameFromState.length + 1);
-                } else if (normalized === rootNameFromState) {
+                if (normalized.startsWith(effectiveRoot + '/')) {
+                    targetPath = normalized.substring(effectiveRoot.length + 1);
+                } else if (normalized === effectiveRoot) {
                     targetPath = filename; // Root-level file, use just filename
                 }
             }

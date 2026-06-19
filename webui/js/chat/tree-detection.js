@@ -2,6 +2,20 @@
 // Handles project structure tree detection, parsing, and synthetic structure generation
 
 /**
+ * Normalize the Unicode replacement character (U+FFFD, shown as "�"/"��"), which appears when a
+ * model's box-drawing characters arrive as broken UTF-8. For the SAVE/DISPLAY copy only —
+ * detection and parsing keep the raw text (isProjectStructure treats U+FFFD as a branch glyph).
+ * For a tree/structure block, collapse runs of U+FFFD to a single box connector so project.txt
+ * renders cleanly. (Real code files strip it instead — see the caller in markdown.js.)
+ * @param {string} s
+ * @returns {string}
+ */
+window.sanitizeMojibake = function(s) {
+    if (!s || s.indexOf('�') === -1) return s;
+    return s.replace(/�+/g, '└'); // U+2514 └ box-drawing up-and-right
+};
+
+/**
  * Detects if a code block contains a project structure (tree view)
  * Looks for tree symbols:
  * - Unicode: ├, └, │, ─ (and their broken UTF-8 variants �)
