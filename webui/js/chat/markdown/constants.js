@@ -293,6 +293,24 @@ window.TOKEN_PATTERNS = {
                     parentheticalPath = parentheticalPath.replace(/^\*\*(.+?)\*\*$|^\*(.+?)\*$|^__(.+?)__$|^_(.+?)_$/, '$1$2$3$4');
                 }
 
+                // BNF v0.1.7: Strip a leading path-label ("relative path:", "path:", "file:", …)
+                // and wrapping backticks that some models prepend inside the parenthetical, e.g.
+                //   1. `index.html` (relative path: `frontend/public/index.html`)
+                // normalizePath() only strips ONE wrapping backtick, so without this the label
+                // and the inner backtick survive into the path → polluted leading segment →
+                // the common-root step mis-strips it (observed: → public/index.html). Parser
+                // hygiene (#5 class), NOT an SSOT: with the clean path, generateSyntheticProject-
+                // Structure keeps `frontend` (KNOWN_TOP_LEVEL_DIRS) → frontend/public/index.html.
+                const stripPathLabel = (s) => s
+                    .replace(/^`+|`+$/g, '')
+                    .replace(/^(?:relative\s+path|path|file|filename)\s*:\s*/i, '')
+                    .replace(/^`+|`+$/g, '')
+                    .trim();
+                listValue = stripPathLabel(listValue);
+                if (parentheticalPath) {
+                    parentheticalPath = stripPathLabel(parentheticalPath);
+                }
+
                 const listInfo = window.normalizePath(listValue);
 
                 if (!listInfo || !listInfo.basename) return null;
