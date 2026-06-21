@@ -83,6 +83,16 @@ function parseProjectStructure(codeContent) {
         // Strip comments (everything after # or //)
         cleaned = cleaned.replace(/\s*(#|\/\/).*$/, '').trim();
 
+        // Strip a trailing free-text description in parentheses, e.g.
+        // "frontend (Front-End React.js project)" or "Cargo.toml (Manifest file)".
+        // EOL-anchored on purpose: only a "( … )" that is the LAST token on the line
+        // is a description. This protects legit filenames whose parens precede the
+        // extension, e.g. "image (1).png" / "App (copy).js" (there ")" is not line-end).
+        // Must run BEFORE the file/dir heuristic below: a dotted description (e.g.
+        // "(React.js project)") would otherwise flip a directory to a file and mis-root
+        // its whole subtree. See docs/grammar (tree-block grammar, <trailing-comment>).
+        cleaned = cleaned.replace(/\s*\([^()]*\)\s*$/, '').trim();
+
         if (!cleaned) continue;
 
         // Detect if it's a file or directory
