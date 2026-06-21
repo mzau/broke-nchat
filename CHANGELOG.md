@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.7-beta] - 2026-06-21
+
+Parser & tree-recognition robustness consolidation — known fixes accumulated since
+0.1.6-beta, all independent of the upcoming 0.2.0 work. No new user-facing features.
+
+### Fixed
+
+- **Code-block file splitting**: support variable-length fences (a 4-backtick outer
+  block containing 3-backtick inner blocks is one block) and meta-only fences. This
+  fixes the index drift that mis-routed save paths after nested fences.
+- **Path normalization on save**: multi-dot dotfiles are handled, and Windows /
+  absolute paths are normalized to relative before saving.
+- **Tree recognition — full ASCII connector family**: column-stack DEDENT with
+  single-dash `|-`, plus the `tree`-style backtick last-child corner `` `-- ``, so
+  rootless and mixed-style project trees nest correctly.
+- **List-item filenames**: strip a leading path label and surrounding backticks from
+  parenthetical filenames, so common-root detection isn't polluted.
+- **Tree descriptions**: strip a trailing free-text `( … )` description on tree lines
+  (and stop a dotted description from mis-rooting a subtree).
+- **Duplicate files**: last-wins de-duplication by path; bulk save now writes the
+  newest revision of a regenerated file.
+- **Display / save hygiene**: sanitize the U+FFFD replacement glyph in saved and
+  displayed copies, count root-level files as a directory in the summary, and pin a
+  session-canonical project root across multi-turn saves.
+- **Structure review modal**: drop a stale target-path input listener when the modal
+  is re-opened (no more accumulating listeners across opens).
+
+### Docs
+
+- **COMPATIBILITY_NOTES**: document the vision / audio / file-save features.
+
+---
+
 ## [0.1.6-beta] - 2026-02-03
 
 Audio upload support with SERVER-HANDBOOK.md v2.0.4-beta.9 feature alignment.

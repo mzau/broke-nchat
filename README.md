@@ -4,7 +4,7 @@
   <img src="webui/assets/broke-beaver-logo.png" alt="BROKE Beaver" height="33" style="vertical-align: baseline; margin-bottom: -2px;">nChat
 </h1>
 
-<strong>Version 0.1.6-beta</strong>
+<strong>Version 0.1.7-beta</strong>
 
 <em>The new way to chat with your LLMs</em>
 

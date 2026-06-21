@@ -5,7 +5,6 @@ AGENTS.md
 # Private development files (excluded from public branch)
 docs/
 tests/
-embedding-smoke-test/
 ADR-*.md
 prompt_*.txt
 project.txt
