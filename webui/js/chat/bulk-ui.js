@@ -246,8 +246,20 @@ function showStructureReviewModal(structure, onConfirm, conflicts = null, option
         }
     }
 
-    // Attach event listener
+    // Attach the input listener — but FIRST drop any handler left from a previous open. The modal and
+    // #structureTargetInput are persistent singletons reused on every open, while updateTargetPreview
+    // is a FRESH closure each call (it closes over this open's structure). A plain
+    // removeEventListener(updateTargetPreview) would therefore never match the prior closure, so the
+    // listeners would accumulate on the input (fire N× per keystroke, plus leak old-structure closures
+    // on a node that is never recreated). Stash the handler on the element so the next open removes
+    // exactly this one. Visible output was already correct (newest listener fires last and wins); this
+    // is a leak/redundancy fix.
+    if (targetInput._brokePreviewHandler) {
+        targetInput.removeEventListener('input', targetInput._brokePreviewHandler);
+        targetInput._brokePreviewHandler = null;
+    }
     if (!viewOnly) {
+        targetInput._brokePreviewHandler = updateTargetPreview;
         targetInput.addEventListener('input', updateTargetPreview);
     }
 
